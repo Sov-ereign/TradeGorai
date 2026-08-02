@@ -33,8 +33,8 @@ export const TopNav: React.FC<TopNavProps> = ({
   const [isSearching, setIsSearching] = useState(false);
   const [showConnectModal, setShowConnectModal] = useState(false);
 
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [apiSecretInput, setApiSecretInput] = useState('');
+  const [apiKeyInput, setApiKeyInput] = useState(() => localStorage.getItem('zerodha_api_key') || '');
+  const [apiSecretInput, setApiSecretInput] = useState(() => localStorage.getItem('zerodha_api_secret') || '');
   const [saveMessage, setSaveMessage] = useState('');
   const [marketInfo, setMarketInfo] = useState<{ status: string; message: string }>({
     status: 'CLOSED',
@@ -50,12 +50,22 @@ export const TopNav: React.FC<TopNavProps> = ({
   });
 
   const refreshStatus = () => {
-    getZerodhaStatus().then((data) => {
-      setZerodhaStatus(data);
-      if (data.login_url) {
-        setSaveMessage('Credentials saved! Click "Login via Zerodha" to complete OAuth flow.');
-      }
-    }).catch(console.error);
+    // Check if credentials exist in localStorage and sync with backend
+    const savedKey = localStorage.getItem('zerodha_api_key');
+    const savedSecret = localStorage.getItem('zerodha_api_secret');
+    const savedToken = localStorage.getItem('zerodha_access_token');
+
+    if (savedKey && savedSecret) {
+      saveZerodhaCredentials(savedKey, savedSecret, savedToken || undefined)
+        .then((res) => {
+          setZerodhaStatus(res.status);
+        })
+        .catch(() => {
+          getZerodhaStatus().then(setZerodhaStatus).catch(console.error);
+        });
+    } else {
+      getZerodhaStatus().then(setZerodhaStatus).catch(console.error);
+    }
 
     getMarketStatus().then((data) => {
       setMarketInfo({
@@ -95,9 +105,12 @@ export const TopNav: React.FC<TopNavProps> = ({
       return;
     }
     try {
-      await saveZerodhaCredentials(apiKeyInput, apiSecretInput);
-      setSaveMessage('✅ Credentials saved successfully!');
-      refreshStatus();
+      localStorage.setItem('zerodha_api_key', apiKeyInput.trim());
+      localStorage.setItem('zerodha_api_secret', apiSecretInput.trim());
+      
+      const res = await saveZerodhaCredentials(apiKeyInput, apiSecretInput);
+      setSaveMessage('✅ Credentials saved and persisted locally!');
+      setZerodhaStatus(res.status);
     } catch (err: any) {
       setSaveMessage(`Error saving credentials: ${err.message}`);
     }

@@ -12,7 +12,7 @@ import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { MobileBottomNav, type MobileTab } from './components/MobileBottomNav';
 
 import type { Stock, Order, Position, PortfolioMetrics, ActivityItem, NotificationItem } from './types/trading';
-import { getWatchlist, getOrders, getPositions, getPortfolioSummary, saveZerodhaCredentials, getZerodhaStatus } from './services/api';
+import { getWatchlist, getOrders, getPositions, getPortfolioSummary, saveZerodhaCredentials } from './services/api';
 import { wsClient } from './services/websocket';
 import { Key, Database, ShieldCheck, CheckCircle2 } from 'lucide-react';
 
@@ -28,21 +28,20 @@ export function App() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [portfolio, setPortfolio] = useState<PortfolioMetrics>({
-    today_pnl: 2340.00,
-    today_pnl_percent: 1.18,
-    overall_pnl: 45210.00,
-    overall_pnl_percent: 9.42,
-    available_margin: 185420.50,
-    used_margin: 64580.00,
-    capital: 250000.00,
-    total_investment: 480000.00,
+    today_pnl: 0.00,
+    today_pnl_percent: 0.00,
+    overall_pnl: 0.00,
+    overall_pnl_percent: 0.00,
+    available_margin: 100000.00,
+    used_margin: 0.00,
+    capital: 100000.00,
+    total_investment: 0.00,
   });
 
   // Settings State
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [apiSecretInput, setApiSecretInput] = useState('');
+  const [apiKeyInput, setApiKeyInput] = useState(() => localStorage.getItem('zerodha_api_key') || '');
+  const [apiSecretInput, setApiSecretInput] = useState(() => localStorage.getItem('zerodha_api_secret') || '');
   const [settingsMsg, setSettingsMsg] = useState('');
-  const [, setZerodhaStatus] = useState<any>({ connected: false, mock_mode: true });
 
   // System & Logs
   const [activities, setActivities] = useState<ActivityItem[]>([]);
@@ -50,15 +49,22 @@ export function App() {
   const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
   const [wsConnected, setWsConnected] = useState<boolean>(false);
 
-  // Initial Data Fetching
+  // Initial Data Fetching & Session Restore
   const loadDashboardData = async () => {
     try {
-      const [wlData, ordData, posData, portData, zStatus] = await Promise.all([
+      // Re-validate saved credentials from localStorage if present
+      const savedKey = localStorage.getItem('zerodha_api_key');
+      const savedSecret = localStorage.getItem('zerodha_api_secret');
+      const savedToken = localStorage.getItem('zerodha_access_token');
+      if (savedKey && savedSecret) {
+        await saveZerodhaCredentials(savedKey, savedSecret, savedToken || undefined).catch(() => {});
+      }
+
+      const [wlData, ordData, posData, portData] = await Promise.all([
         getWatchlist(),
         getOrders(),
         getPositions(),
         getPortfolioSummary(),
-        getZerodhaStatus(),
       ]);
 
       setWatchlist(wlData);
@@ -68,7 +74,6 @@ export function App() {
       setOrders(ordData);
       setPositions(posData);
       setPortfolio(portData);
-      setZerodhaStatus(zStatus);
     } catch (err) {
       console.error('Failed loading dashboard data:', err);
     }
@@ -214,8 +219,10 @@ export function App() {
 
   const handleSaveSettings = async () => {
     try {
+      localStorage.setItem('zerodha_api_key', apiKeyInput.trim());
+      localStorage.setItem('zerodha_api_secret', apiSecretInput.trim());
       await saveZerodhaCredentials(apiKeyInput, apiSecretInput);
-      setSettingsMsg('✅ Zerodha API Credentials updated successfully!');
+      setSettingsMsg('✅ Zerodha API Credentials updated & saved locally!');
       loadDashboardData();
     } catch (err: any) {
       setSettingsMsg(`Error updating credentials: ${err.message}`);
@@ -249,46 +256,47 @@ export function App() {
 
         {/* Main Content Area */}
         <main className="flex-1 p-3 sm:p-4 overflow-y-auto">
-          {/* Top Portfolio Summary Bar */}
-          <PortfolioCard portfolio={portfolio} />
 
           {/* DESKTOP LAYOUT VIEWS (lg:flex) */}
-          <div className="hidden lg:block h-[calc(100vh-170px)] min-h-[680px]">
+          <div className="hidden lg:block h-[calc(100vh-100px)] min-h-[680px]">
             {/* Dashboard View (Multi-grid layout) */}
             {activeTab === 'dashboard' && (
-              <div className="grid grid-cols-12 gap-4 h-full">
-                <div className="col-span-4 h-full">
-                  <WatchlistPanel
-                    watchlist={watchlist}
-                    selectedStock={selectedStock}
-                    onSelectStock={handleSelectStock}
-                    onWatchlistUpdated={loadDashboardData}
-                  />
-                </div>
-                <div className="col-span-4 flex flex-col gap-4 h-full">
-                  <div className="flex-1 min-h-[420px]">
-                    <OrderEntryPanel
+              <div className="flex flex-col gap-4 h-full">
+                <PortfolioCard portfolio={portfolio} />
+                <div className="grid grid-cols-12 gap-4 flex-1">
+                  <div className="col-span-4 h-full">
+                    <WatchlistPanel
+                      watchlist={watchlist}
                       selectedStock={selectedStock}
-                      onOrderPlaced={handleOrderPlaced}
+                      onSelectStock={handleSelectStock}
+                      onWatchlistUpdated={loadDashboardData}
                     />
                   </div>
-                  <div className="h-44">
-                    <ActivityFeed activities={activities} />
+                  <div className="col-span-4 flex flex-col gap-4 h-full">
+                    <div className="flex-1 min-h-[420px]">
+                      <OrderEntryPanel
+                        selectedStock={selectedStock}
+                        onOrderPlaced={handleOrderPlaced}
+                      />
+                    </div>
+                    <div className="h-44">
+                      <ActivityFeed activities={activities} />
+                    </div>
                   </div>
-                </div>
-                <div className="col-span-4 flex flex-col gap-4 h-full">
-                  <div className="flex-1 min-h-[280px]">
-                    <PositionsPanel
-                      positions={positions}
-                      onPositionsUpdated={handlePositionsUpdated}
-                    />
-                  </div>
-                  <div className="flex-1 min-h-[280px]">
-                    <OrdersPanel
-                      orders={orders}
-                      onOrdersUpdated={handleOrdersUpdated}
-                      onDuplicateOrder={handleDuplicateOrder}
-                    />
+                  <div className="col-span-4 flex flex-col gap-4 h-full">
+                    <div className="flex-1 min-h-[280px]">
+                      <PositionsPanel
+                        positions={positions}
+                        onPositionsUpdated={handlePositionsUpdated}
+                      />
+                    </div>
+                    <div className="flex-1 min-h-[280px]">
+                      <OrdersPanel
+                        orders={orders}
+                        onOrdersUpdated={handleOrdersUpdated}
+                        onDuplicateOrder={handleDuplicateOrder}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -317,13 +325,16 @@ export function App() {
               </div>
             )}
 
-            {/* Positions Full Page */}
+            {/* Positions Full Page with Portfolio Card */}
             {activeTab === 'positions' && (
-              <div className="h-full">
-                <PositionsPanel
-                  positions={positions}
-                  onPositionsUpdated={handlePositionsUpdated}
-                />
+              <div className="flex flex-col gap-4 h-full">
+                <PortfolioCard portfolio={portfolio} />
+                <div className="flex-1">
+                  <PositionsPanel
+                    positions={positions}
+                    onPositionsUpdated={handlePositionsUpdated}
+                  />
+                </div>
               </div>
             )}
 
@@ -419,7 +430,7 @@ export function App() {
           </div>
 
           {/* MOBILE LAYOUT VIEWS (< 1024px) */}
-          <div className="lg:hidden h-[calc(100vh-230px)] min-h-[500px]">
+          <div className="lg:hidden h-[calc(100vh-180px)] min-h-[500px]">
             {activeMobileTab === 'watchlist' && (
               <WatchlistPanel
                 watchlist={watchlist}
@@ -437,10 +448,15 @@ export function App() {
             )}
 
             {activeMobileTab === 'positions' && (
-              <PositionsPanel
-                positions={positions}
-                onPositionsUpdated={handlePositionsUpdated}
-              />
+              <div className="flex flex-col gap-3 h-full">
+                <PortfolioCard portfolio={portfolio} />
+                <div className="flex-1 overflow-hidden">
+                  <PositionsPanel
+                    positions={positions}
+                    onPositionsUpdated={handlePositionsUpdated}
+                  />
+                </div>
+              </div>
             )}
 
             {activeMobileTab === 'orders' && (
