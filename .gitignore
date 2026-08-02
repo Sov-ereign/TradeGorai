@@ -1,0 +1,28 @@
+# Node dependencies
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+.DS_Store
+
+# Python virtual environment & cache
+venv/
+backend/venv/
+__pycache__/
+backend/__pycache__/
+backend/routers/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Environment files with private keys
+.env
+backend/.env
+frontend/.env
+frontend/.env.local
+
+# IDE & OS
+.vscode/
+.idea/
+*.log
