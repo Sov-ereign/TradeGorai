@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from typing import List, Dict, Any
 from pydantic import BaseModel
 from database import db_instance
+from zerodha_service import zerodha_service
 
 router = APIRouter(prefix="/api/watchlist", tags=["Watchlist"])
 
@@ -17,6 +18,28 @@ class WatchlistAddRequest(BaseModel):
 
 @router.get("", response_model=List[Dict[str, Any]])
 async def get_watchlist():
+    # If Zerodha is connected live, pull user's live holdings & active instruments
+    if not zerodha_service.is_mock_mode and zerodha_service.kite:
+        try:
+            live_h = zerodha_service.get_live_holdings()
+            if live_h:
+                sync_list = []
+                for item in live_h:
+                    sync_list.append({
+                        "symbol": item["symbol"],
+                        "name": item["name"],
+                        "ltp": item["ltp"],
+                        "change": round((item["ltp"] - item["avg_price"]) / item["avg_price"] * 100, 2) if item["avg_price"] > 0 else 0.0,
+                        "high": round(item["ltp"] * 1.02, 2),
+                        "low": round(item["ltp"] * 0.98, 2),
+                        "starred": True,
+                        "exchange": item.get("exchange", "NSE")
+                    })
+                if sync_list:
+                    return sync_list
+        except Exception:
+            pass
+
     if db_instance.is_connected and db_instance.db is not None:
         try:
             cursor = db_instance.db.watchlist.find({}, {"_id": 0})
@@ -25,6 +48,7 @@ async def get_watchlist():
                 return items
         except Exception:
             pass
+
     return db_instance.memory_watchlist
 
 @router.post("", response_model=Dict[str, Any])

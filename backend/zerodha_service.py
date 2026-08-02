@@ -1,10 +1,13 @@
 import logging
+import json
+import os
 import random
 import time
 from typing import Dict, Any, List, Optional
 from config import settings
 
-logger = logging.getLogger("tradeforge.zerodha")
+logger = logging.getLogger("tradegorai.zerodha")
+SESSION_FILE = os.path.join(os.path.dirname(__file__), ".zerodha_session.json")
 
 class ZerodhaService:
     def __init__(self):
@@ -17,9 +20,43 @@ class ZerodhaService:
             "user_name": "Pro Trader",
             "client_id": "ZF8921",
             "user_type": "individual",
-            "email": "trader@tradeforge.ai"
+            "email": "trader@tradegorai.ai"
         }
+        self._load_session_file()
         self._init_client()
+
+    def _load_session_file(self):
+        if os.path.exists(SESSION_FILE):
+            try:
+                with open(SESSION_FILE, "r") as f:
+                    data = json.load(f)
+                    if data.get("api_key"):
+                        self.api_key = data["api_key"]
+                    if data.get("api_secret"):
+                        self.api_secret = data["api_secret"]
+                    if data.get("access_token"):
+                        self.access_token = data["access_token"]
+                    if data.get("user_name"):
+                        self.user_profile["user_name"] = data["user_name"]
+                    if data.get("client_id"):
+                        self.user_profile["client_id"] = data["client_id"]
+                    logger.info("Loaded persisted Zerodha session from disk.")
+            except Exception as e:
+                logger.warning(f"Failed loading session file: {e}")
+
+    def _save_session_file(self):
+        try:
+            with open(SESSION_FILE, "w") as f:
+                json.dump({
+                    "api_key": self.api_key,
+                    "api_secret": self.api_secret,
+                    "access_token": self.access_token,
+                    "user_name": self.user_profile["user_name"],
+                    "client_id": self.user_profile["client_id"]
+                }, f, indent=2)
+            logger.info("Saved Zerodha session to disk.")
+        except Exception as e:
+            logger.warning(f"Failed saving session file: {e}")
 
     def _init_client(self):
         if self.api_key and self.access_token:
@@ -28,7 +65,6 @@ class ZerodhaService:
                 self.kite = KiteConnect(api_key=self.api_key)
                 self.kite.set_access_token(self.access_token)
                 
-                # Test connection by fetching profile
                 try:
                     profile = self.kite.profile()
                     self.user_profile["user_name"] = profile.get("user_name", "Zerodha Trader")
@@ -51,6 +87,7 @@ class ZerodhaService:
         self.api_secret = api_secret.strip()
         if access_token:
             self.access_token = access_token.strip()
+        self._save_session_file()
         self._init_client()
 
     def get_login_url(self) -> str:
@@ -75,6 +112,7 @@ class ZerodhaService:
             self.user_profile["client_id"] = profile.get("user_id", "KITE_LIVE")
             self.user_profile["email"] = profile.get("email", "")
             
+            self._save_session_file()
             logger.info(f"Successfully generated Zerodha Session token for user {self.user_profile['client_id']}")
             return {
                 "success": True,
@@ -171,6 +209,51 @@ class ZerodhaService:
                 logger.error(f"Error fetching live orders from Zerodha: {e}")
         return None
 
+    def get_live_holdings(self) -> Optional[List[Dict[str, Any]]]:
+        if not self.is_mock_mode and self.kite:
+            try:
+                holdings = self.kite.holdings()
+                formatted = []
+                for h in holdings:
+                    formatted.append({
+                        "symbol": h.get("tradingsymbol"),
+                        "name": h.get("tradingsymbol"),
+                        "qty": h.get("quantity", 0),
+                        "avg_price": float(h.get("average_price", 0.0)),
+                        "ltp": float(h.get("last_price", 0.0)),
+                        "pnl": float(h.get("pnl", 0.0)),
+                        "exchange": h.get("exchange", "NSE")
+                    })
+                return formatted
+            except Exception as e:
+                logger.error(f"Error fetching live holdings from Zerodha: {e}")
+        return None
+
+    def search_instruments(self, query: str) -> Optional[List[Dict[str, Any]]]:
+        if not self.is_mock_mode and self.kite and query:
+            try:
+                # Query live quote for symbol
+                sym = query.upper().strip()
+                quote_res = self.kite.quote([f"NSE:{sym}", f"NFO:{sym}"])
+                results = []
+                for inst_key, val in quote_res.items():
+                    symbol_name = inst_key.split(":")[-1]
+                    ltp = val.get("last_price", 0.0)
+                    oh = val.get("ohlc", {})
+                    results.append({
+                        "symbol": symbol_name,
+                        "name": symbol_name,
+                        "ltp": ltp,
+                        "change": val.get("net_change", 0.0),
+                        "high": oh.get("high", ltp),
+                        "low": oh.get("low", ltp),
+                        "exchange": inst_key.split(":")[0]
+                    })
+                return results
+            except Exception as e:
+                logger.error(f"Error searching instruments via Zerodha: {e}")
+        return None
+
     def place_order(self, order_data: Dict[str, Any]) -> Dict[str, Any]:
         symbol = order_data.get("symbol")
         side = order_data.get("side", "BUY").upper()
@@ -181,7 +264,6 @@ class ZerodhaService:
         target = float(order_data.get("target", 0)) if order_data.get("target") else None
         stop_loss = float(order_data.get("stop_loss", 0)) if order_data.get("stop_loss") else None
 
-        # Calculate estimated charges based on Zerodha tariff
         est_val = price * qty if price > 0 else 1000.0 * qty
         brokerage = 0.0 if product == "CNC" else min(20.0, est_val * 0.0003)
         stt = est_val * 0.001 if side == "SELL" else (est_val * 0.001 if product == "CNC" else 0.0)

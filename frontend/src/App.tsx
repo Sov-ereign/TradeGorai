@@ -49,6 +49,20 @@ export function App() {
   const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
   const [wsConnected, setWsConnected] = useState<boolean>(false);
 
+  // Check URL parameters for OAuth Login Token
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('zerodha') === 'connected') {
+      const token = params.get('token');
+      if (token) {
+        localStorage.setItem('zerodha_access_token', token);
+      }
+      addNotification('Zerodha OAuth Connected', 'Successfully logged in to live Zerodha session!', 'success');
+      // Clean query string from address bar cleanly
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
   // Initial Data Fetching & Session Restore
   const loadDashboardData = async () => {
     try {

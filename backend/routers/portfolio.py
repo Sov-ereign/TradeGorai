@@ -12,12 +12,23 @@ async def get_portfolio_summary():
     if live_margins:
         return live_margins
 
-    # Fallback to calculated portfolio metrics
+    # Calculate portfolio metrics dynamically from active positions
     open_positions = [p for p in db_instance.memory_positions if p["status"] == "OPEN"]
     today_pnl = sum(p.get("pnl", 0.0) for p in open_positions)
     
-    metrics = db_instance.memory_portfolio.copy()
-    metrics["today_pnl"] = round(today_pnl, 2)
-    metrics["overall_pnl"] = round(45210.00 + today_pnl, 2)
-    
-    return metrics
+    used_margin = sum((p.get("avg_price", 0.0) * p.get("qty", 0)) for p in open_positions)
+    capital = 100000.00
+    available_margin = max(0.0, capital - used_margin)
+
+    pnl_pct = (today_pnl / capital * 100) if capital > 0 else 0.0
+
+    return {
+        "today_pnl": round(today_pnl, 2),
+        "today_pnl_percent": round(pnl_pct, 2),
+        "overall_pnl": round(today_pnl, 2),
+        "overall_pnl_percent": round(pnl_pct, 2),
+        "available_margin": round(available_margin, 2),
+        "used_margin": round(used_margin, 2),
+        "capital": capital,
+        "total_investment": round(used_margin, 2)
+    }

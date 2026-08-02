@@ -1,4 +1,5 @@
 import asyncio
+import os
 import json
 import random
 import logging
@@ -94,7 +95,11 @@ async def zerodha_oauth_callback(request_token: str = Query(...)):
     """Zerodha OAuth Redirect Handler after user logs in via Kite Connect"""
     try:
         res = zerodha_service.generate_session(request_token)
-        return RedirectResponse(url="http://localhost:3000?zerodha=connected")
+        token = res.get("access_token", "")
+        name = res.get("profile", {}).get("user_name", "Zerodha Trader")
+        client_id = res.get("profile", {}).get("user_id", "")
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        return RedirectResponse(url=f"{frontend_url}?zerodha=connected&token={token}&user_name={name}&client_id={client_id}")
     except Exception as e:
         logger.error(f"Zerodha OAuth Callback Error: {e}")
         return RedirectResponse(url=f"http://localhost:3000?zerodha=error&msg={str(e)}")
