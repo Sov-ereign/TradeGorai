@@ -9,6 +9,7 @@ import { OrdersPanel } from './components/OrdersPanel';
 import { ActivityFeed } from './components/ActivityFeed';
 import { NotificationToast } from './components/NotificationToast';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
+import { MobileBottomNav, type MobileTab } from './components/MobileBottomNav';
 
 import type { Stock, Order, Position, PortfolioMetrics, ActivityItem, NotificationItem } from './types/trading';
 import { getWatchlist, getOrders, getPositions, getPortfolioSummary } from './services/api';
@@ -17,6 +18,8 @@ import { wsClient } from './services/websocket';
 export function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
+  const [activeMobileTab, setActiveMobileTab] = useState<MobileTab>('watchlist');
   
   // Data States
   const [watchlist, setWatchlist] = useState<Stock[]>([]);
@@ -168,6 +171,14 @@ export function App() {
     setActivities((prev) => [newAct, ...prev].slice(0, 50));
   };
 
+  const handleSelectStock = (stock: Stock) => {
+    setSelectedStock(stock);
+    // On mobile, auto-switch to trade tab when user selects a stock
+    if (window.innerWidth < 1024) {
+      setActiveMobileTab('trade');
+    }
+  };
+
   const handleOrderPlaced = (msg: string) => {
     addNotification('Order Processed', msg, msg.includes('🔴') ? 'error' : 'success');
     addActivity(msg, 'ORDER', msg.includes('🔴') ? 'error' : 'success');
@@ -189,49 +200,55 @@ export function App() {
   const handleDuplicateOrder = (order: Order) => {
     const match = watchlist.find((s) => s.symbol === order.symbol);
     if (match) {
-      setSelectedStock(match);
+      handleSelectStock(match);
       addNotification('Order Pre-filled', `Selected ${order.symbol} for order entry`, 'info');
     }
   };
 
+  const openPositionsCount = positions.filter((p) => p.status === 'OPEN').length;
+  const pendingOrdersCount = orders.filter((o) => o.status === 'PENDING').length;
+
   return (
     <div className="flex h-screen bg-[#0B0E14] text-slate-100 font-sans overflow-hidden">
-      {/* Sidebar Navigation */}
+      {/* Sidebar Navigation (Desktop & Mobile Drawer) */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         collapsed={sidebarCollapsed}
         setCollapsed={setSidebarCollapsed}
+        mobileOpen={mobileSidebarOpen}
+        setMobileOpen={setMobileSidebarOpen}
       />
 
       {/* Main Workspace */}
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto pb-16 lg:pb-0">
         {/* Top Navbar */}
         <TopNav
-          onSelectStock={(stock) => setSelectedStock(stock)}
+          onSelectStock={handleSelectStock}
           openKeyboardModal={() => setShowShortcutsModal(true)}
           wsConnected={wsConnected}
+          onToggleMobileSidebar={() => setMobileSidebarOpen(true)}
         />
 
         {/* Dashboard Content Container */}
-        <main className="flex-1 p-4 overflow-y-auto">
+        <main className="flex-1 p-3 sm:p-4 overflow-y-auto">
           {/* Top Portfolio Summary Bar */}
           <PortfolioCard portfolio={portfolio} />
 
-          {/* Main Modular Trading Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-[calc(100vh-170px)] min-h-[680px]">
+          {/* DESKTOP LAYOUT (Screen width >= 1024px) */}
+          <div className="hidden lg:grid grid-cols-12 gap-4 h-[calc(100vh-170px)] min-h-[680px]">
             {/* Left Grid: Watchlist Panel (4 cols) */}
-            <div className="lg:col-span-4 h-full">
+            <div className="col-span-4 h-full">
               <WatchlistPanel
                 watchlist={watchlist}
                 selectedStock={selectedStock}
-                onSelectStock={setSelectedStock}
+                onSelectStock={handleSelectStock}
                 onWatchlistUpdated={loadDashboardData}
               />
             </div>
 
             {/* Middle Grid: Order Entry Panel & Activity Stream (4 cols) */}
-            <div className="lg:col-span-4 flex flex-col gap-4 h-full">
+            <div className="col-span-4 flex flex-col gap-4 h-full">
               <div className="flex-1 min-h-[420px]">
                 <OrderEntryPanel
                   selectedStock={selectedStock}
@@ -244,7 +261,7 @@ export function App() {
             </div>
 
             {/* Right Grid: Positions & Orders Book (4 cols) */}
-            <div className="lg:col-span-4 flex flex-col gap-4 h-full">
+            <div className="col-span-4 flex flex-col gap-4 h-full">
               <div className="flex-1 min-h-[280px]">
                 <PositionsPanel
                   positions={positions}
@@ -260,8 +277,54 @@ export function App() {
               </div>
             </div>
           </div>
+
+          {/* MOBILE LAYOUT (Screen width < 1024px) */}
+          <div className="lg:hidden h-[calc(100vh-230px)] min-h-[500px]">
+            {activeMobileTab === 'watchlist' && (
+              <WatchlistPanel
+                watchlist={watchlist}
+                selectedStock={selectedStock}
+                onSelectStock={handleSelectStock}
+                onWatchlistUpdated={loadDashboardData}
+              />
+            )}
+
+            {activeMobileTab === 'trade' && (
+              <OrderEntryPanel
+                selectedStock={selectedStock}
+                onOrderPlaced={handleOrderPlaced}
+              />
+            )}
+
+            {activeMobileTab === 'positions' && (
+              <PositionsPanel
+                positions={positions}
+                onPositionsUpdated={handlePositionsUpdated}
+              />
+            )}
+
+            {activeMobileTab === 'orders' && (
+              <OrdersPanel
+                orders={orders}
+                onOrdersUpdated={handleOrdersUpdated}
+                onDuplicateOrder={handleDuplicateOrder}
+              />
+            )}
+
+            {activeMobileTab === 'activity' && (
+              <ActivityFeed activities={activities} />
+            )}
+          </div>
         </main>
       </div>
+
+      {/* Mobile Bottom Navigation Bar */}
+      <MobileBottomNav
+        activeMobileTab={activeMobileTab}
+        setActiveMobileTab={setActiveMobileTab}
+        openPositionsCount={openPositionsCount}
+        pendingOrdersCount={pendingOrdersCount}
+      />
 
       {/* Notification Toast Layer */}
       <NotificationToast
