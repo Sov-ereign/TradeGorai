@@ -16,7 +16,7 @@ from zerodha_service import zerodha_service
 from routers import watchlist, orders, positions, portfolio, market
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("tradeforge.main")
+logger = logging.getLogger("tradegorai.main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -45,12 +45,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register REST Routers
+# Register REST Routers with /api prefix
 app.include_router(watchlist.router)
 app.include_router(orders.router)
 app.include_router(positions.router)
 app.include_router(portfolio.router)
 app.include_router(market.router)
+
+# Also register root-level aliases for direct requests without /api prefix
+@app.get("/watchlist")
+async def get_watchlist_root():
+    return await watchlist.get_watchlist()
+
+@app.get("/orders")
+async def get_orders_root(status: Optional[str] = None):
+    return await orders.get_orders(status)
+
+@app.get("/positions")
+async def get_positions_root():
+    return await positions.get_positions()
+
+@app.get("/portfolio")
+async def get_portfolio_root():
+    return await portfolio.get_portfolio_summary()
 
 class ZerodhaCredentialsRequest(BaseModel):
     api_key: str
@@ -58,10 +75,12 @@ class ZerodhaCredentialsRequest(BaseModel):
     access_token: Optional[str] = None
 
 @app.get("/api/zerodha/status")
+@app.get("/zerodha/status")
 async def zerodha_status():
     return zerodha_service.get_status()
 
 @app.post("/api/zerodha/credentials")
+@app.post("/zerodha/credentials")
 async def save_zerodha_credentials(req: ZerodhaCredentialsRequest):
     zerodha_service.set_credentials(req.api_key, req.api_secret, req.access_token)
     return {
@@ -70,6 +89,7 @@ async def save_zerodha_credentials(req: ZerodhaCredentialsRequest):
     }
 
 @app.get("/api/zerodha/callback")
+@app.get("/zerodha/callback")
 async def zerodha_oauth_callback(request_token: str = Query(...)):
     """Zerodha OAuth Redirect Handler after user logs in via Kite Connect"""
     try:
@@ -80,13 +100,13 @@ async def zerodha_oauth_callback(request_token: str = Query(...)):
         return RedirectResponse(url=f"http://localhost:3000?zerodha=error&msg={str(e)}")
 
 @app.post("/api/zerodha/postback")
+@app.post("/zerodha/postback")
 async def zerodha_postback_webhook(request: Request):
     """
     Zerodha Postback Webhook Handler.
     Zerodha sends order execution updates to this endpoint whenever an order status changes on exchange.
     """
     try:
-        # Zerodha sends JSON or Form Data depending on payload version
         content_type = request.headers.get("content-type", "")
         if "application/json" in content_type:
             payload = await request.json()
@@ -103,13 +123,11 @@ async def zerodha_postback_webhook(request: Request):
         qty = payload.get("quantity")
         price = payload.get("average_price") or payload.get("price")
 
-        # Update local memory & database order state
         for ord_item in db_instance.memory_orders:
             if ord_item["id"] == str(order_id):
                 ord_item["status"] = "EXECUTED" if status == "COMPLETE" else status
                 break
 
-        # Broadcast order execution alert to frontend WebSocket clients
         event_payload = {
             "type": "ORDER_POSTBACK",
             "order_id": order_id,

@@ -1,7 +1,20 @@
 import axios from 'axios';
 import type { Stock, Order, Position, PortfolioMetrics } from '../types/trading';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+// Normalize VITE_API_BASE_URL to always include /api path
+let rawBase = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api').trim();
+
+// Remove trailing slash if present
+if (rawBase.endsWith('/')) {
+  rawBase = rawBase.slice(0, -1);
+}
+
+// Append /api if missing
+if (!rawBase.endsWith('/api')) {
+  rawBase = `${rawBase}/api`;
+}
+
+export const API_BASE_URL = rawBase;
 
 const api = axios.create({
   baseURL: API_BASE_URL,
