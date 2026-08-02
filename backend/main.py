@@ -183,21 +183,29 @@ async def websocket_ticks_endpoint(websocket: WebSocket):
         ws_manager.disconnect(websocket)
 
 async def broadcast_live_ticks():
-    """Background task streaming live market ticks to connected clients."""
+    """Background task streaming market ticks to connected clients."""
     while True:
         try:
             await asyncio.sleep(1.5)
             if not ws_manager.active_connections:
                 continue
 
+            # Check if market is open in IST
+            market_open = market.is_market_open_ist()
+
             ticks = {}
             for item in db_instance.memory_watchlist:
                 symbol = item["symbol"]
                 current_ltp = item["ltp"]
-                delta = round(random.uniform(-0.003, 0.003) * current_ltp, 2)
-                new_ltp = round(max(10.0, current_ltp + delta), 2)
+
+                # Only simulate price movement if market is open or in explicit simulation
+                if market_open:
+                    delta = round(random.uniform(-0.003, 0.003) * current_ltp, 2)
+                    new_ltp = round(max(10.0, current_ltp + delta), 2)
+                else:
+                    new_ltp = current_ltp # Static price at night/market closed
+
                 item["ltp"] = new_ltp
-                
                 item["high"] = max(item["high"], new_ltp)
                 item["low"] = min(item["low"], new_ltp)
                 
@@ -207,6 +215,7 @@ async def broadcast_live_ticks():
                     "change": item["change"],
                     "high": item["high"],
                     "low": item["low"],
+                    "market_open": market_open,
                     "timestamp": asyncio.get_event_loop().time()
                 }
 
@@ -222,6 +231,7 @@ async def broadcast_live_ticks():
             tick_payload = {
                 "type": "TICK_UPDATE",
                 "ticks": ticks,
+                "market_open": market_open,
                 "server_time": asyncio.get_event_loop().time()
             }
 

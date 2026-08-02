@@ -12,7 +12,7 @@ import {
   ShieldCheck,
   Menu
 } from 'lucide-react';
-import { searchStocks, getZerodhaStatus, saveZerodhaCredentials } from '../services/api';
+import { searchStocks, getZerodhaStatus, saveZerodhaCredentials, getMarketStatus } from '../services/api';
 import type { Stock } from '../types/trading';
 
 interface TopNavProps {
@@ -36,6 +36,10 @@ export const TopNav: React.FC<TopNavProps> = ({
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [apiSecretInput, setApiSecretInput] = useState('');
   const [saveMessage, setSaveMessage] = useState('');
+  const [marketInfo, setMarketInfo] = useState<{ status: string; message: string }>({
+    status: 'CLOSED',
+    message: 'NSE Market Closed'
+  });
 
   const [zerodhaStatus, setZerodhaStatus] = useState<any>({
     connected: false,
@@ -51,6 +55,13 @@ export const TopNav: React.FC<TopNavProps> = ({
       if (data.login_url) {
         setSaveMessage('Credentials saved! Click "Login via Zerodha" to complete OAuth flow.');
       }
+    }).catch(console.error);
+
+    getMarketStatus().then((data) => {
+      setMarketInfo({
+        status: data.status,
+        message: data.message || (data.status === 'OPEN' ? 'NSE: Open (09:15 - 15:30 IST)' : 'NSE: Closed (Opens 09:15 IST)')
+      });
     }).catch(console.error);
   };
 
@@ -91,6 +102,8 @@ export const TopNav: React.FC<TopNavProps> = ({
       setSaveMessage(`Error saving credentials: ${err.message}`);
     }
   };
+
+  const isMarketOpen = marketInfo.status === 'OPEN';
 
   return (
     <>
@@ -178,10 +191,16 @@ export const TopNav: React.FC<TopNavProps> = ({
             <span className="text-[11px]">Shortcuts</span>
           </button>
 
-          {/* Market Status Badge */}
-          <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-950/40 border border-emerald-800/40 text-[11px] font-medium text-emerald-400">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>NSE: Open</span>
+          {/* Market Status Badge (Real IST time aware) */}
+          <div
+            className={`hidden md:flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-medium border ${
+              isMarketOpen
+                ? 'bg-emerald-950/40 border-emerald-800/40 text-emerald-400'
+                : 'bg-rose-950/40 border-rose-800/40 text-rose-400'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full ${isMarketOpen ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></span>
+            <span>{marketInfo.message}</span>
           </div>
 
           {/* Zerodha Connection Status Button */}
@@ -210,10 +229,10 @@ export const TopNav: React.FC<TopNavProps> = ({
                 ? 'text-emerald-400 border-emerald-900/40 bg-emerald-950/20'
                 : 'text-slate-500 border-slate-800 bg-slate-900'
             }`}
-            title={wsConnected ? 'WebSockets Live Ticks Active' : 'Connecting WS Ticks...'}
+            title={wsConnected ? 'WebSockets Ticks Stream Connected' : 'Connecting WS...'}
           >
             <Activity className={`w-3 h-3 ${wsConnected ? 'animate-pulse text-emerald-400' : 'text-slate-600'}`} />
-            <span className="hidden sm:inline">{wsConnected ? 'LIVE WS' : 'WS'}</span>
+            <span className="hidden sm:inline">{wsConnected ? (isMarketOpen ? 'LIVE WS' : 'WS CONNECTED') : 'WS'}</span>
           </div>
 
           {/* User Profile Avatar */}
