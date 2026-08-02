@@ -3,11 +3,15 @@ import json
 import os
 import random
 import time
+import urllib.request
+import csv
+import io
 from typing import Dict, Any, List, Optional
 from config import settings
 
 logger = logging.getLogger("tradegorai.zerodha")
 SESSION_FILE = os.path.join(os.path.dirname(__file__), ".zerodha_session.json")
+INSTRUMENTS_CACHE_FILE = os.path.join(os.path.dirname(__file__), ".zerodha_instruments.json")
 
 class ZerodhaService:
     def __init__(self):
@@ -22,8 +26,80 @@ class ZerodhaService:
             "user_type": "individual",
             "email": "trader@tradegorai.ai"
         }
+        self.instruments_catalog: List[Dict[str, Any]] = []
         self._load_session_file()
         self._init_client()
+
+    def load_instruments_catalog(self):
+        """Load or download live Zerodha exchange instruments CSV (~90k symbols)"""
+        try:
+            if os.path.exists(INSTRUMENTS_CACHE_FILE) and (time.time() - os.path.getmtime(INSTRUMENTS_CACHE_FILE) < 86400):
+                with open(INSTRUMENTS_CACHE_FILE, "r") as f:
+                    self.instruments_catalog = json.load(f)
+                logger.info(f"Loaded {len(self.instruments_catalog)} instruments from disk cache.")
+                return
+
+            logger.info("Downloading live Zerodha instruments catalog...")
+            req = urllib.request.Request("https://api.kite.trade/instruments", headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                content = resp.read().decode('utf-8')
+                reader = csv.DictReader(io.StringIO(content))
+                parsed = []
+                for row in reader:
+                    exch = row.get("exchange", "")
+                    if exch in ("NSE", "NFO", "BSE"):
+                        parsed.append({
+                            "symbol": row.get("tradingsymbol", ""),
+                            "name": row.get("name", row.get("tradingsymbol", "")),
+                            "exchange": exch,
+                            "type": row.get("instrument_type", "EQ"),
+                            "expiry": row.get("expiry", ""),
+                            "strike": float(row.get("strike", 0.0) or 0.0),
+                            "ltp": float(row.get("last_price", 0.0) or 0.0),
+                            "change": 0.0,
+                            "high": float(row.get("last_price", 0.0) or 0.0),
+                            "low": float(row.get("last_price", 0.0) or 0.0),
+                        })
+                self.instruments_catalog = parsed
+                with open(INSTRUMENTS_CACHE_FILE, "w") as f:
+                    json.dump(parsed[:15000], f) # Cache top 15k instruments for fast lookup
+                logger.info(f"Successfully loaded {len(self.instruments_catalog)} live instruments.")
+        except Exception as e:
+            logger.warning(f"Could not load live Zerodha instruments CSV: {e}")
+
+    def search_catalog(self, query: str) -> List[Dict[str, Any]]:
+        if not self.instruments_catalog:
+            self.load_instruments_catalog()
+        
+        if not query:
+            return self.instruments_catalog[:30]
+
+        q = query.upper().strip()
+        matched = []
+        for inst in self.instruments_catalog:
+            if q in inst["symbol"] or q in inst["name"].upper():
+                matched.append(inst)
+                if len(matched) >= 40:
+                    break
+        
+        # If live Zerodha connection is active, fetch exact real-time quote for matched symbols
+        if not self.is_mock_mode and self.kite and matched:
+            try:
+                symbols_to_quote = [f"{item['exchange']}:{item['symbol']}" for item in matched[:10]]
+                quotes = self.kite.quote(symbols_to_quote)
+                for item in matched:
+                    q_key = f"{item['exchange']}:{item['symbol']}"
+                    if q_key in quotes:
+                        q_data = quotes[q_key]
+                        item["ltp"] = q_data.get("last_price", item["ltp"])
+                        item["change"] = q_data.get("net_change", 0.0)
+                        oh = q_data.get("ohlc", {})
+                        item["high"] = oh.get("high", item["ltp"])
+                        item["low"] = oh.get("low", item["ltp"])
+            except Exception as e:
+                logger.warning(f"Error fetching live Zerodha quote for search: {e}")
+
+        return matched
 
     def _load_session_file(self):
         if os.path.exists(SESSION_FILE):
@@ -141,15 +217,17 @@ class ZerodhaService:
             try:
                 margins = self.kite.margins()
                 equity = margins.get("equity", {})
+                utilised = equity.get("utilised", {})
+                available = equity.get("available", {})
                 return {
-                    "today_pnl": equity.get("utilised", {}).get("realised_m2m", 0.0),
+                    "today_pnl": float(utilised.get("realised_m2m", 0.0)),
                     "today_pnl_percent": 0.0,
-                    "overall_pnl": equity.get("utilised", {}).get("realised_m2m", 0.0),
+                    "overall_pnl": float(utilised.get("realised_m2m", 0.0)),
                     "overall_pnl_percent": 0.0,
-                    "available_margin": equity.get("available", {}).get("live_balance", 0.0),
-                    "used_margin": equity.get("utilised", {}).get("debits", 0.0),
-                    "capital": equity.get("net", 0.0),
-                    "total_investment": equity.get("available", {}).get("collateral", 0.0)
+                    "available_margin": float(available.get("live_balance", 0.0)),
+                    "used_margin": float(utilised.get("debits", 0.0)),
+                    "capital": float(equity.get("net", 0.0)),
+                    "total_investment": float(available.get("collateral", 0.0))
                 }
             except Exception as e:
                 logger.error(f"Error fetching live margins from Zerodha: {e}")
@@ -227,31 +305,6 @@ class ZerodhaService:
                 return formatted
             except Exception as e:
                 logger.error(f"Error fetching live holdings from Zerodha: {e}")
-        return None
-
-    def search_instruments(self, query: str) -> Optional[List[Dict[str, Any]]]:
-        if not self.is_mock_mode and self.kite and query:
-            try:
-                # Query live quote for symbol
-                sym = query.upper().strip()
-                quote_res = self.kite.quote([f"NSE:{sym}", f"NFO:{sym}"])
-                results = []
-                for inst_key, val in quote_res.items():
-                    symbol_name = inst_key.split(":")[-1]
-                    ltp = val.get("last_price", 0.0)
-                    oh = val.get("ohlc", {})
-                    results.append({
-                        "symbol": symbol_name,
-                        "name": symbol_name,
-                        "ltp": ltp,
-                        "change": val.get("net_change", 0.0),
-                        "high": oh.get("high", ltp),
-                        "low": oh.get("low", ltp),
-                        "exchange": inst_key.split(":")[0]
-                    })
-                return results
-            except Exception as e:
-                logger.error(f"Error searching instruments via Zerodha: {e}")
         return None
 
     def place_order(self, order_data: Dict[str, Any]) -> Dict[str, Any]:

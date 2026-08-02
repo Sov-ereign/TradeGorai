@@ -21,8 +21,9 @@ logger = logging.getLogger("tradegorai.main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Connect to MongoDB
+    # Startup: Connect to MongoDB & load instrument catalog
     await connect_to_mongo()
+    asyncio.create_task(asyncio.to_thread(zerodha_service.load_instruments_catalog))
     # Start background tick broadcaster
     tick_task = asyncio.create_task(broadcast_live_ticks())
     yield
@@ -91,18 +92,25 @@ async def save_zerodha_credentials(req: ZerodhaCredentialsRequest):
 
 @app.get("/api/zerodha/callback")
 @app.get("/zerodha/callback")
-async def zerodha_oauth_callback(request_token: str = Query(...)):
+async def zerodha_oauth_callback(request: Request, request_token: str = Query(...)):
     """Zerodha OAuth Redirect Handler after user logs in via Kite Connect"""
     try:
         res = zerodha_service.generate_session(request_token)
         token = res.get("access_token", "")
         name = res.get("profile", {}).get("user_name", "Zerodha Trader")
         client_id = res.get("profile", {}).get("user_id", "")
-        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
-        return RedirectResponse(url=f"{frontend_url}?zerodha=connected&token={token}&user_name={name}&client_id={client_id}")
+        
+        frontend_url = os.getenv("FRONTEND_URL", "https://trade-gorai.vercel.app")
+        origin_header = request.headers.get("origin") or request.headers.get("referer")
+        if origin_header and ("vercel.app" in origin_header or "localhost" in origin_header):
+            frontend_url = origin_header.split("?")[0].rstrip("/")
+
+        redirect_target = f"{frontend_url}?zerodha=connected&token={token}&user_name={name}&client_id={client_id}"
+        return RedirectResponse(url=redirect_target)
     except Exception as e:
         logger.error(f"Zerodha OAuth Callback Error: {e}")
-        return RedirectResponse(url=f"http://localhost:3000?zerodha=error&msg={str(e)}")
+        frontend_url = os.getenv("FRONTEND_URL", "https://trade-gorai.vercel.app")
+        return RedirectResponse(url=f"{frontend_url}?zerodha=error&msg={str(e)}")
 
 @app.post("/api/zerodha/postback")
 @app.post("/zerodha/postback")
