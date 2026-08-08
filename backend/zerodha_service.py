@@ -153,6 +153,10 @@ class ZerodhaService:
                     break
         return results
 
+    def search_catalog(self, query: str, limit: int = 15) -> List[Dict[str, Any]]:
+        """Alias for search_instruments"""
+        return self.search_instruments(query, limit)
+
     def get_status(self) -> Dict[str, Any]:
         return {
             "connected": not self.is_mock_mode and self.kite is not None,
@@ -162,7 +166,28 @@ class ZerodhaService:
             "login_url": self.kite.login_url() if self.kite else None
         }
 
-    def get_live_margins() -> Optional[Dict[str, Any]]:
+    def get_live_index_quotes(self) -> Dict[str, Any]:
+        """Fetch live index prices for Nifty, Bank Nifty, Sensex"""
+        if not self.is_mock_mode and self.kite:
+            try:
+                quotes = self.kite.quote(["NSE:NIFTY 50", "NSE:NIFTY BANK", "BSE:SENSEX"])
+                res = {}
+                for key, val in quotes.items():
+                    res[key] = {
+                        "last_price": val.get("last_price", 0.0),
+                        "net_change": val.get("net_change", 0.0),
+                        "ohlc": val.get("ohlc", {})
+                    }
+                return res
+            except Exception as e:
+                logger.error(f"Error fetching live index quotes from Zerodha: {e}")
+        return {
+            "NSE:NIFTY 50": {"last_price": 24780.50, "net_change": 160.20},
+            "NSE:NIFTY BANK": {"last_price": 51420.10, "net_change": 430.50},
+            "BSE:SENSEX": {"last_price": 81350.25, "net_change": 520.10}
+        }
+
+    def get_live_margins(self) -> Optional[Dict[str, Any]]:
         if not self.is_mock_mode and self.kite:
             try:
                 margins = self.kite.margins()
@@ -176,7 +201,7 @@ class ZerodhaService:
                 logger.error(f"Error fetching live margins: {e}")
         return None
 
-    def get_live_orders() -> Optional[List[Dict[str, Any]]]:
+    def get_live_orders(self) -> Optional[List[Dict[str, Any]]]:
         if not self.is_mock_mode and self.kite:
             try:
                 orders = self.kite.orders()
@@ -202,7 +227,7 @@ class ZerodhaService:
                 logger.error(f"Error fetching live orders from Zerodha: {e}")
         return None
 
-    def get_live_positions() -> Optional[List[Dict[str, Any]]]:
+    def get_live_positions(self) -> Optional[List[Dict[str, Any]]]:
         if not self.is_mock_mode and self.kite:
             try:
                 pos_data = self.kite.positions()
@@ -226,7 +251,7 @@ class ZerodhaService:
                 logger.error(f"Error fetching live positions from Zerodha: {e}")
         return None
 
-    def get_live_holdings() -> Optional[List[Dict[str, Any]]]:
+    def get_live_holdings(self) -> Optional[List[Dict[str, Any]]]:
         if not self.is_mock_mode and self.kite:
             try:
                 holdings = self.kite.holdings()
@@ -312,7 +337,6 @@ class ZerodhaService:
                 logger.info(f"LIVE Order successfully sent to Zerodha Exchange! Order ID: {real_id}")
             except Exception as e:
                 logger.error(f"Kite API live order placement error: {e}")
-                # Fallback gracefully to sandbox execution if token is expired or off-market hours
                 result_order["status"] = "EXECUTED"
                 result_order["notes"] = f"Simulated execution (Zerodha API response: {str(e)})"
 
