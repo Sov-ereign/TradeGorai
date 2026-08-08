@@ -27,11 +27,14 @@ class OrderUpdateRequest(BaseModel):
 
 @router.get("", response_model=List[Dict[str, Any]])
 async def get_orders(status: Optional[str] = None):
-    live_ord = zerodha_service.get_live_orders()
-    if live_ord is not None:
-        if status:
-            return [o for o in live_ord if o.get("status", "").upper() == status.upper()]
-        return live_ord
+    try:
+        live_ord = zerodha_service.get_live_orders()
+        if live_ord is not None:
+            if status:
+                return [o for o in live_ord if o.get("status", "").upper() == status.upper()]
+            return live_ord
+    except Exception as e:
+        print(f"Error fetching live orders: {e}")
 
     orders = db_instance.memory_orders
     if status:
@@ -40,30 +43,33 @@ async def get_orders(status: Optional[str] = None):
 
 @router.post("", response_model=Dict[str, Any])
 async def place_order(order_req: OrderCreateRequest):
-    order_dict = order_req.model_dump()
-    placed_order = zerodha_service.place_order(order_dict)
+    try:
+        order_dict = order_req.model_dump()
+        placed_order = zerodha_service.place_order(order_dict)
 
-    # Attach virtual target & stop_loss fields
-    placed_order["target"] = order_dict.get("target")
-    placed_order["stop_loss"] = order_dict.get("stop_loss")
+        # Attach virtual target & stop_loss fields
+        placed_order["target"] = order_dict.get("target")
+        placed_order["stop_loss"] = order_dict.get("stop_loss")
 
-    # Save order to memory
-    db_instance.memory_orders.insert(0, placed_order)
+        # Save order to memory
+        db_instance.memory_orders.insert(0, placed_order)
 
-    # If executed, auto-create position with virtual triggers
-    if placed_order["status"] == "EXECUTED":
-        _update_position_from_executed_order(placed_order)
+        # If executed, auto-create position with virtual triggers
+        if placed_order["status"] == "EXECUTED":
+            _update_position_from_executed_order(placed_order)
 
-    if db_instance.is_connected and db_instance.db is not None:
-        try:
-            await db_instance.db.orders.insert_one(placed_order.copy())
-        except Exception as e:
-            print(f"MongoDB order insert error: {e}")
+        if db_instance.is_connected and db_instance.db is not None:
+            try:
+                await db_instance.db.orders.insert_one(placed_order.copy())
+            except Exception as e:
+                print(f"MongoDB order insert error: {e}")
 
-    return {
-        "message": f"Order {placed_order['id']} placed successfully",
-        "order": placed_order
-    }
+        return {
+            "message": f"Order {placed_order['id']} placed successfully",
+            "order": placed_order
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Order error: {str(e)}")
 
 @router.put("/{order_id}", response_model=Dict[str, Any])
 async def modify_order(order_id: str, update_req: OrderUpdateRequest):
