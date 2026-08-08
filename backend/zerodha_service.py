@@ -93,7 +93,7 @@ class ZerodhaService:
         return data
 
     def load_instruments_catalog(self):
-        """Load Zerodha Live Instrument Dump (53,800+ symbols)"""
+        """Load Zerodha Live Instrument Dump (53,800+ symbols) prioritizing NSE & NFO"""
         if os.path.exists(INSTRUMENTS_FILE):
             try:
                 with open(INSTRUMENTS_FILE, "r") as f:
@@ -137,35 +137,75 @@ class ZerodhaService:
                             "low": round(last_price * 0.98, 2),
                             "starred": False
                         })
+
+                # Sort catalog to prioritize NSE & NFO over BSE
+                def cat_score(item):
+                    ex = item.get("exchange", "NSE")
+                    return 0 if ex == "NSE" else (1 if ex == "NFO" else 2)
+
+                catalog.sort(key=cat_score)
+
                 self.instruments_catalog = catalog
                 logger.info(f"Successfully loaded {len(self.instruments_catalog)} live instruments.")
                 with open(INSTRUMENTS_FILE, "w") as f:
-                    json.dump(catalog[:15000], f)
+                    json.dump(catalog[:25000], f)
         except Exception as e:
             logger.error(f"Error downloading live instruments catalog: {e}")
 
-    def search_instruments(self, query: str, limit: int = 15) -> List[Dict[str, Any]]:
+    def search_instruments(self, query: str, limit: int = 25) -> List[Dict[str, Any]]:
         if not query or not query.strip():
             return []
         
         q = query.strip().upper()
-        results = []
+        
+        matches = []
         for item in self.instruments_catalog:
-            if q in item["symbol"].upper() or q in item["name"].upper():
-                item_copy = dict(item)
-                if item_copy.get("ltp", 0.0) <= 0.0:
-                    sym_hash = sum(ord(c) for c in item_copy["symbol"])
-                    item_copy["ltp"] = round((sym_hash % 2500) + 120.50, 2)
-                    item_copy["high"] = round(item_copy["ltp"] * 1.02, 2)
-                    item_copy["low"] = round(item_copy["ltp"] * 0.98, 2)
-                    item_copy["change"] = round(random.uniform(-1.5, 2.5), 2)
+            sym = item["symbol"].upper()
+            name = item["name"].upper()
+            if q in sym or q in name:
+                matches.append(item)
 
-                results.append(item_copy)
-                if len(results) >= limit:
-                    break
+        # Relevance & Exchange Priority Scoring: NSE -> NFO -> BSE
+        def score(item):
+            sym = item["symbol"].upper()
+            exch = item.get("exchange", "NSE").upper()
+            
+            is_exact = (sym == q)
+            starts_with = sym.startswith(q)
+            exch_rank = 0 if exch == "NSE" else (1 if exch == "NFO" else 2)
+            
+            if is_exact and exch == "NSE":
+                return (0, exch_rank, len(sym))
+            elif is_exact:
+                return (1, exch_rank, len(sym))
+            elif starts_with and exch == "NSE":
+                return (2, exch_rank, len(sym))
+            elif starts_with and exch == "NFO":
+                return (3, exch_rank, len(sym))
+            elif starts_with:
+                return (4, exch_rank, len(sym))
+            elif exch == "NSE":
+                return (5, exch_rank, len(sym))
+            else:
+                return (6, exch_rank, len(sym))
+
+        matches.sort(key=score)
+
+        results = []
+        for item in matches[:limit]:
+            item_copy = dict(item)
+            if item_copy.get("ltp", 0.0) <= 0.0:
+                sym_hash = sum(ord(c) for c in item_copy["symbol"])
+                item_copy["ltp"] = round((sym_hash % 2500) + 120.50, 2)
+                item_copy["high"] = round(item_copy["ltp"] * 1.02, 2)
+                item_copy["low"] = round(item_copy["ltp"] * 0.98, 2)
+                item_copy["change"] = round(random.uniform(-1.5, 2.5), 2)
+
+            results.append(item_copy)
+
         return results
 
-    def search_catalog(self, query: str, limit: int = 15) -> List[Dict[str, Any]]:
+    def search_catalog(self, query: str, limit: int = 25) -> List[Dict[str, Any]]:
         """Alias for search_instruments"""
         return self.search_instruments(query, limit)
 
