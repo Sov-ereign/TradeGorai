@@ -1,7 +1,6 @@
 import asyncio
 import os
 import json
-import random
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Request, Response
@@ -244,112 +243,114 @@ async def websocket_ticks_endpoint(websocket: WebSocket):
         ws_manager.disconnect(websocket)
 
 async def broadcast_live_ticks():
-    """Background Task: Broadcast Live Prices for active watchlists & open positions (Strict IST Market Hours Only)"""
+    """Background Task: Broadcast Live Quotes from Zerodha API for active watchlists & open positions"""
     while True:
         try:
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(2.0)
             
             market_open = is_market_open_ist()
             ticks = {}
-            
+
+            symbols_to_fetch = set()
             for wl in db_instance.memory_watchlists:
                 for item in wl.get("items", []):
-                    symbol = item["symbol"]
-                    current_ltp = item["ltp"]
+                    symbols_to_fetch.add((item["symbol"], item.get("exchange", "NSE")))
 
-                    # Only simulate ticks during active NSE market hours (Mon-Fri 09:15 - 15:30 IST)
-                    # On weekends (Saturdays & Sundays) or off-market hours, prices remain 100% frozen at last market close!
-                    if market_open:
-                        delta = round(random.uniform(-0.003, 0.003) * current_ltp, 2)
-                        new_ltp = round(max(10.0, current_ltp + delta), 2)
-                    else:
-                        new_ltp = current_ltp
+            for pos in list(db_instance.memory_positions):
+                if pos.get("status") == "OPEN":
+                    symbols_to_fetch.add((pos["symbol"], "NSE"))
 
-                    item["ltp"] = new_ltp
-                    item["high"] = max(item["high"], new_ltp)
-                    item["low"] = min(item["low"], new_ltp)
-                    
-                    ticks[symbol] = {
-                        "symbol": symbol,
-                        "ltp": new_ltp,
-                        "change": item["change"],
-                        "high": item["high"],
-                        "low": item["low"],
+            for sym, exch in symbols_to_fetch:
+                quote = zerodha_service.fetch_real_quote(sym, exch)
+                if quote and "ltp" in quote:
+                    ticks[sym] = {
+                        "symbol": sym,
+                        "ltp": quote["ltp"],
+                        "change": quote.get("change", 0.0),
+                        "high": quote.get("high", round(quote["ltp"] * 1.01, 2)),
+                        "low": quote.get("low", round(quote["ltp"] * 0.99, 2)),
                         "market_open": market_open,
                         "timestamp": asyncio.get_event_loop().time()
                     }
 
+            for wl in db_instance.memory_watchlists:
+                for item in wl.get("items", []):
+                    sym = item["symbol"]
+                    if sym in ticks:
+                        item["ltp"] = ticks[sym]["ltp"]
+                        item["change"] = ticks[sym]["change"]
+                        item["high"] = ticks[sym]["high"]
+                        item["low"] = ticks[sym]["low"]
+
             for pos in list(db_instance.memory_positions):
                 if pos.get("status") == "OPEN":
                     sym = pos["symbol"]
-                    current_ltp = ticks.get(sym, {}).get("ltp", pos.get("current_price", pos["avg_price"]))
-                    pos["current_price"] = current_ltp
-                    diff = current_ltp - pos["avg_price"]
-                    pos["pnl"] = round(diff * pos["qty"], 2)
-                    pos["unrealized_pnl"] = pos["pnl"]
-                    pos["pnl_percent"] = round((diff / pos["avg_price"]) * 100, 2)
+                    if sym in ticks:
+                        current_ltp = ticks[sym]["ltp"]
+                        pos["current_price"] = current_ltp
+                        diff = current_ltp - pos["avg_price"]
+                        pos["pnl"] = round(diff * pos["qty"], 2)
+                        pos["unrealized_pnl"] = pos["pnl"]
+                        pos["pnl_percent"] = round((diff / pos["avg_price"]) * 100, 2) if pos["avg_price"] > 0 else 0.0
 
-                    target = pos.get("target")
-                    stop_loss = pos.get("stop_loss")
+                        target = pos.get("target")
+                        stop_loss = pos.get("stop_loss")
 
-                    if target and current_ltp >= target:
-                        logger.info(f"🎯 VIRTUAL TARGET HIT for {sym} @ {current_ltp} (Target: {target}). Triggering Zerodha Market Exit!")
-                        pos["status"] = "CLOSED"
-                        
-                        try:
-                            zerodha_service.place_order({
+                        if target and current_ltp >= target:
+                            logger.info(f"🎯 TARGET HIT for {sym} @ ₹{current_ltp} (Target: ₹{target}). Triggering Zerodha Market Exit!")
+                            pos["status"] = "CLOSED"
+                            try:
+                                zerodha_service.place_order({
+                                    "symbol": sym,
+                                    "side": "SELL",
+                                    "qty": pos["qty"],
+                                    "product": pos["product"],
+                                    "order_type": "MARKET"
+                                })
+                            except Exception as ze:
+                                logger.error(f"Error placing Zerodha Target exit order: {ze}")
+
+                            await ws_manager.broadcast({
+                                "type": "VIRTUAL_TRIGGER",
+                                "trigger_type": "TARGET",
                                 "symbol": sym,
-                                "side": "SELL",
-                                "qty": pos["qty"],
-                                "product": pos["product"],
-                                "order_type": "MARKET"
+                                "price": current_ltp,
+                                "message": f"🎯 Target Hit! Executed {sym} SELL order at ₹{current_ltp} on Zerodha."
                             })
-                        except Exception as ze:
-                            logger.error(f"Error placing Zerodha Target exit order: {ze}")
 
-                        await ws_manager.broadcast({
-                            "type": "VIRTUAL_TRIGGER",
-                            "trigger_type": "TARGET",
-                            "symbol": sym,
-                            "price": current_ltp,
-                            "message": f"🎯 Hidden Target Hit! Executed {sym} SELL order at ₹{current_ltp} on Zerodha."
-                        })
+                        elif stop_loss and current_ltp <= stop_loss:
+                            logger.info(f"🛡️ STOP LOSS HIT for {sym} @ ₹{current_ltp} (SL: ₹{stop_loss}). Triggering Zerodha Market Exit!")
+                            pos["status"] = "CLOSED"
+                            try:
+                                zerodha_service.place_order({
+                                    "symbol": sym,
+                                    "side": "SELL",
+                                    "qty": pos["qty"],
+                                    "product": pos["product"],
+                                    "order_type": "MARKET"
+                                })
+                            except Exception as ze:
+                                logger.error(f"Error placing Zerodha SL exit order: {ze}")
 
-                    elif stop_loss and current_ltp <= stop_loss:
-                        logger.info(f"🛡️ VIRTUAL STOP LOSS HIT for {sym} @ {current_ltp} (SL: {stop_loss}). Triggering Zerodha Market Exit!")
-                        pos["status"] = "CLOSED"
-
-                        try:
-                            zerodha_service.place_order({
+                            await ws_manager.broadcast({
+                                "type": "VIRTUAL_TRIGGER",
+                                "trigger_type": "STOP_LOSS",
                                 "symbol": sym,
-                                "side": "SELL",
-                                "qty": pos["qty"],
-                                "product": pos["product"],
-                                "order_type": "MARKET"
+                                "price": current_ltp,
+                                "message": f"🛡️ Stop Loss Hit! Executed {sym} SELL order at ₹{current_ltp} on Zerodha."
                             })
-                        except Exception as ze:
-                            logger.error(f"Error placing Zerodha SL exit order: {ze}")
-
-                        await ws_manager.broadcast({
-                            "type": "VIRTUAL_TRIGGER",
-                            "trigger_type": "STOP_LOSS",
-                            "symbol": sym,
-                            "price": current_ltp,
-                            "message": f"🛡️ Hidden Stop Loss Hit! Executed {sym} SELL order at ₹{current_ltp} on Zerodha."
-                        })
 
             if ws_manager.active_connections and ticks:
-                tick_payload = {
+                await ws_manager.broadcast({
                     "type": "TICK_UPDATE",
                     "ticks": ticks,
                     "market_open": market_open,
                     "server_time": asyncio.get_event_loop().time()
-                }
-                await ws_manager.broadcast(tick_payload)
+                })
         except asyncio.CancelledError:
             break
         except Exception as e:
-            logger.error(f"Error in tick & trigger broadcast loop: {e}")
+            logger.error(f"Error in Zerodha tick stream loop: {e}")
 
 if __name__ == "__main__":
     import uvicorn

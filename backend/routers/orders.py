@@ -1,4 +1,3 @@
-import random
 import time
 from fastapi import APIRouter, HTTPException
 from typing import List, Dict, Any, Optional
