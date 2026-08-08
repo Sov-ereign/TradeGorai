@@ -12,7 +12,7 @@ import {
   X,
   Check
 } from 'lucide-react';
-import type { Stock, WatchlistGroup } from '../types/trading';
+import type { Stock, WatchlistGroup, OrderSide } from '../types/trading';
 import { 
   getWatchlists, 
   addToWatchlist, 
@@ -23,6 +23,7 @@ import {
   renameWatchlistGroup,
   deleteWatchlistGroup 
 } from '../services/api';
+import { KiteOrderModal } from './KiteOrderModal';
 
 interface WatchlistPanelProps {
   watchlist: Stock[];
@@ -44,6 +45,11 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
   const [isSearching, setIsSearching] = useState(false);
   const [filterQuery, setFilterQuery] = useState('');
   
+  // Kite Order Sheet Modal state
+  const [modalStock, setModalStock] = useState<Stock | null>(null);
+  const [modalSide, setModalSide] = useState<OrderSide>('BUY');
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+
   // Group creation & editing states
   const [showNewGroupModal, setShowNewGroupModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
@@ -90,6 +96,12 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
 
   const activeGroup = groups.find((g) => g.id === activeGroupId) || groups[0];
   const currentStocks = activeGroup ? activeGroup.items : propWatchlist;
+
+  const handleOpenOrderModal = (stock: Stock, side: OrderSide) => {
+    setModalStock(stock);
+    setModalSide(side);
+    setIsModalOpen(true);
+  };
 
   const handleAddStock = async (stock: Stock) => {
     try {
@@ -167,7 +179,6 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
     <div className="bg-[#121721] border border-[#1E2638] rounded-xl h-full flex flex-col overflow-hidden shadow-xl">
       {/* Header & Watchlist Group Selector Tabs */}
       <div className="p-3 border-b border-[#1E2638] bg-[#0F1420] flex items-center justify-between gap-2 overflow-x-auto">
-        {/* Scrollable Watchlist Tabs */}
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
           {groups.map((group) => {
             const isActive = group.id === activeGroupId;
@@ -179,7 +190,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
                 onClick={() => setActiveGroupId(group.id)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer transition-all ${
                   isActive
-                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950/40'
+                    ? 'bg-[#387ED1] text-white shadow-md shadow-[#387ED1]/30'
                     : 'bg-[#182030] text-slate-400 hover:text-slate-200 hover:bg-[#1F2B40]'
                 }`}
               >
@@ -204,7 +215,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
                     <span>{group.name}</span>
                     <span
                       className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
-                        isActive ? 'bg-emerald-800 text-emerald-100' : 'bg-[#0D111A] text-slate-400'
+                        isActive ? 'bg-black/30 text-white' : 'bg-[#0D111A] text-slate-400'
                       }`}
                     >
                       {group.items.length}
@@ -216,14 +227,14 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
                             setEditingGroupId(group.id);
                             setEditingName(group.name);
                           }}
-                          className="text-emerald-200 hover:text-white"
+                          className="text-white/80 hover:text-white"
                           title="Rename Watchlist"
                         >
                           <Edit2 className="w-2.5 h-2.5" />
                         </button>
                         <button
                           onClick={() => handleDeleteGroup(group.id)}
-                          className="text-emerald-200 hover:text-rose-300"
+                          className="text-white/80 hover:text-rose-300"
                           title="Delete Watchlist"
                         >
                           <Trash2 className="w-2.5 h-2.5" />
@@ -237,10 +248,10 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
           })}
         </div>
 
-        {/* Create New Watchlist Group Button */}
+        {/* Create New Watchlist Button */}
         <button
           onClick={() => setShowNewGroupModal(true)}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#182030] hover:bg-[#202B40] border border-emerald-500/30 text-emerald-400 text-xs font-semibold whitespace-nowrap transition-colors"
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#182030] hover:bg-[#202B40] border border-[#387ED1]/40 text-[#387ED1] text-xs font-semibold whitespace-nowrap transition-colors"
           title="Create New Watchlist"
         >
           <FolderPlus className="w-3.5 h-3.5" />
@@ -248,7 +259,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
         </button>
       </div>
 
-      {/* Stock Instrument Search Bar */}
+      {/* Search Input Bar */}
       <div className="p-2.5 border-b border-[#1E2638] bg-[#0D111A] relative">
         <div className="relative">
           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5 pointer-events-none" />
@@ -257,7 +268,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search & add 53,800+ symbols (e.g. NIFTY 24800 CE)..."
-            className="w-full bg-[#121721] border border-[#1E2638] focus:border-emerald-500 rounded-lg pl-8 pr-8 py-1.5 text-xs text-slate-100 placeholder-slate-500 outline-none transition-all"
+            className="w-full bg-[#121721] border border-[#1E2638] focus:border-[#387ED1] rounded-lg pl-8 pr-8 py-1.5 text-xs text-slate-100 placeholder-slate-500 outline-none transition-all"
           />
           {searchQuery && (
             <button
@@ -290,7 +301,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
                     <span className="font-mono text-slate-200">₹{stock.ltp.toFixed(2)}</span>
                     <button
                       onClick={() => handleAddStock(stock)}
-                      className="p-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] flex items-center gap-1 px-2"
+                      className="p-1 rounded bg-[#387ED1] hover:bg-[#2C68B2] text-white font-bold text-[11px] flex items-center gap-1 px-2"
                     >
                       <Plus className="w-3 h-3" />
                       Add
@@ -310,7 +321,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
           value={filterQuery}
           onChange={(e) => setFilterQuery(e.target.value)}
           placeholder={`Filter ${activeGroup ? activeGroup.name : 'watchlist'}...`}
-          className="w-full bg-[#121721] border border-[#1E2638] focus:border-emerald-500 rounded-md px-3 py-1 text-xs text-slate-200 placeholder-slate-500 outline-none"
+          className="w-full bg-[#121721] border border-[#1E2638] focus:border-[#387ED1] rounded-md px-3 py-1 text-xs text-slate-200 placeholder-slate-500 outline-none"
         />
       </div>
 
@@ -333,10 +344,10 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
               <div
                 key={stock.symbol}
                 onClick={() => onSelectStock(stock)}
-                className={`group p-2.5 flex items-center justify-between cursor-pointer transition-all ${
+                className={`group p-3 flex items-center justify-between cursor-pointer transition-all ${
                   isSelected
-                    ? 'bg-gradient-to-r from-emerald-950/50 via-[#182030] to-transparent border-l-4 border-l-emerald-500'
-                    : 'hover:bg-[#181F2C]'
+                    ? 'bg-[#182030] border-l-4 border-l-[#387ED1]'
+                    : 'hover:bg-[#151B28]'
                 }`}
               >
                 {/* Symbol & Name */}
@@ -354,7 +365,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
                   <div className="truncate">
                     <div className="flex items-center gap-1.5">
                       <span className="font-bold text-xs text-slate-100">{stock.symbol}</span>
-                      <span className="text-[9px] px-1 rounded bg-[#182030] text-slate-400 font-mono">
+                      <span className="text-[9px] px-1 rounded bg-[#0D111A] text-slate-400 font-mono">
                         {stock.exchange || 'NSE'}
                       </span>
                     </div>
@@ -364,9 +375,9 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
                   </div>
                 </div>
 
-                {/* LTP, % Change, Daily High & Low */}
-                <div className="flex items-center gap-3">
-                  <div className="text-right">
+                {/* LTP, % Change & Big Kite Action Buttons */}
+                <div className="flex items-center gap-2">
+                  <div className="text-right mr-1">
                     <div className="font-mono text-xs font-semibold text-slate-100">
                       ₹{stock.ltp.toFixed(2)}
                     </div>
@@ -387,6 +398,27 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
                     </div>
                   </div>
 
+                  {/* Kite Quick BUY & SELL Action Buttons */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenOrderModal(stock, 'BUY');
+                    }}
+                    className="bg-[#387ED1] hover:bg-[#2C68B2] text-white font-bold text-[10px] px-2.5 py-1 rounded shadow-sm transition-all"
+                  >
+                    B
+                  </button>
+
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenOrderModal(stock, 'SELL');
+                    }}
+                    className="bg-[#DF514C] hover:bg-[#B83E3A] text-white font-bold text-[10px] px-2.5 py-1 rounded shadow-sm transition-all"
+                  >
+                    S
+                  </button>
+
                   {/* Remove Stock Button */}
                   <button
                     onClick={(e) => handleRemoveStock(e, stock.symbol)}
@@ -402,6 +434,17 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
         )}
       </div>
 
+      {/* Kite Order Modal Sheet */}
+      {modalStock && (
+        <KiteOrderModal
+          stock={modalStock}
+          initialSide={modalSide}
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          onOrderPlaced={onWatchlistUpdated}
+        />
+      )}
+
       {/* New Watchlist Group Modal */}
       {showNewGroupModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -414,7 +457,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
             </button>
 
             <h3 className="text-sm font-bold text-slate-100 mb-3 flex items-center gap-2">
-              <FolderPlus className="w-4 h-4 text-emerald-400" />
+              <FolderPlus className="w-4 h-4 text-[#387ED1]" />
               Create New Watchlist
             </h3>
 
@@ -423,7 +466,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
               placeholder="Watchlist Name (e.g. Options Scalping)..."
               value={newGroupName}
               onChange={(e) => setNewGroupName(e.target.value)}
-              className="w-full bg-[#0D111A] border border-[#1E2638] focus:border-emerald-500 rounded-lg p-2.5 text-xs text-slate-100 outline-none mb-4"
+              className="w-full bg-[#0D111A] border border-[#1E2638] focus:border-[#387ED1] rounded-lg p-2.5 text-xs text-slate-100 outline-none mb-4"
               autoFocus
             />
 
@@ -436,7 +479,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
               </button>
               <button
                 onClick={handleCreateGroup}
-                className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-lg text-xs"
+                className="flex-1 bg-[#387ED1] hover:bg-[#2C68B2] text-white font-bold py-2 rounded-lg text-xs"
               >
                 Create
               </button>

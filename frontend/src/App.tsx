@@ -12,9 +12,9 @@ import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { MobileBottomNav, type MobileTab } from './components/MobileBottomNav';
 
 import type { Stock, Order, Position, PortfolioMetrics, ActivityItem, NotificationItem } from './types/trading';
-import { getWatchlist, getOrders, getPositions, getPortfolioSummary, saveZerodhaCredentials } from './services/api';
+import { getWatchlists, getOrders, getPositions, getPortfolioSummary, saveZerodhaCredentials, getZerodhaStatus } from './services/api';
 import { wsClient } from './services/websocket';
-import { Key, Database, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { Key, Database, ShieldCheck, CheckCircle2, User, ExternalLink } from 'lucide-react';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -32,9 +32,9 @@ export function App() {
     today_pnl_percent: 0.00,
     overall_pnl: 0.00,
     overall_pnl_percent: 0.00,
-    available_margin: 100000.00,
+    available_margin: 0.00,
     used_margin: 0.00,
-    capital: 100000.00,
+    capital: 0.00,
     total_investment: 0.00,
   });
 
@@ -42,6 +42,7 @@ export function App() {
   const [apiKeyInput, setApiKeyInput] = useState(() => localStorage.getItem('zerodha_api_key') || '');
   const [apiSecretInput, setApiSecretInput] = useState(() => localStorage.getItem('zerodha_api_secret') || '');
   const [settingsMsg, setSettingsMsg] = useState('');
+  const [zerodhaStatus, setZerodhaStatus] = useState<any>({ connected: false, mock_mode: true });
 
   // System & Logs
   const [activities, setActivities] = useState<ActivityItem[]>([]);
@@ -58,7 +59,6 @@ export function App() {
         localStorage.setItem('zerodha_access_token', token);
       }
       addNotification('Zerodha OAuth Connected', 'Successfully logged in to live Zerodha session!', 'success');
-      // Clean query string from address bar cleanly
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
@@ -66,7 +66,6 @@ export function App() {
   // Initial Data Fetching & Session Restore
   const loadDashboardData = async () => {
     try {
-      // Re-validate saved credentials from localStorage if present
       const savedKey = localStorage.getItem('zerodha_api_key');
       const savedSecret = localStorage.getItem('zerodha_api_secret');
       const savedToken = localStorage.getItem('zerodha_access_token');
@@ -74,20 +73,23 @@ export function App() {
         await saveZerodhaCredentials(savedKey, savedSecret, savedToken || undefined).catch(() => {});
       }
 
-      const [wlData, ordData, posData, portData] = await Promise.all([
-        getWatchlist(),
+      const [groups, ordData, posData, portData, zStatus] = await Promise.all([
+        getWatchlists(),
         getOrders(),
         getPositions(),
         getPortfolioSummary(),
+        getZerodhaStatus(),
       ]);
 
-      setWatchlist(wlData);
-      if (wlData.length > 0 && !selectedStock) {
-        setSelectedStock(wlData[0]);
+      const flatWatchlist = groups.length > 0 ? groups[0].items : [];
+      setWatchlist(flatWatchlist);
+      if (flatWatchlist.length > 0 && !selectedStock) {
+        setSelectedStock(flatWatchlist[0]);
       }
       setOrders(ordData);
       setPositions(posData);
       setPortfolio(portData);
+      setZerodhaStatus(zStatus);
     } catch (err) {
       console.error('Failed loading dashboard data:', err);
     }
@@ -200,9 +202,6 @@ export function App() {
 
   const handleSelectStock = (stock: Stock) => {
     setSelectedStock(stock);
-    if (window.innerWidth < 1024) {
-      setActiveMobileTab('trade');
-    }
   };
 
   const handleOrderPlaced = (msg: string) => {
@@ -380,13 +379,13 @@ export function App() {
             {activeTab === 'settings' && (
               <div className="bg-[#121721] border border-[#1E2638] rounded-xl p-6 max-w-2xl mx-auto space-y-6">
                 <h2 className="text-base font-bold text-slate-100 border-b border-[#1E2638] pb-3 flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                  <ShieldCheck className="w-5 h-5 text-[#387ED1]" />
                   TradeGorai Terminal Settings
                 </h2>
 
                 <div className="space-y-4">
                   <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                    <Key className="w-4 h-4 text-emerald-400" />
+                    <Key className="w-4 h-4 text-[#387ED1]" />
                     Zerodha Kite Connect Credentials
                   </h3>
                   
@@ -397,7 +396,7 @@ export function App() {
                       placeholder="Enter Kite API Key..."
                       value={apiKeyInput}
                       onChange={(e) => setApiKeyInput(e.target.value)}
-                      className="w-full bg-[#0D111A] border border-[#1E2638] focus:border-emerald-500 rounded-lg p-2.5 text-xs font-mono text-slate-100 outline-none"
+                      className="w-full bg-[#0D111A] border border-[#1E2638] focus:border-[#387ED1] rounded-lg p-2.5 text-xs font-mono text-slate-100 outline-none"
                     />
                   </div>
 
@@ -408,7 +407,7 @@ export function App() {
                       placeholder="Enter Kite API Secret..."
                       value={apiSecretInput}
                       onChange={(e) => setApiSecretInput(e.target.value)}
-                      className="w-full bg-[#0D111A] border border-[#1E2638] focus:border-emerald-500 rounded-lg p-2.5 text-xs font-mono text-slate-100 outline-none"
+                      className="w-full bg-[#0D111A] border border-[#1E2638] focus:border-[#387ED1] rounded-lg p-2.5 text-xs font-mono text-slate-100 outline-none"
                     />
                   </div>
 
@@ -420,7 +419,7 @@ export function App() {
 
                   <button
                     onClick={handleSaveSettings}
-                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 px-6 rounded-lg text-xs transition-all shadow-md shadow-emerald-950/40"
+                    className="bg-[#387ED1] hover:bg-[#2C68B2] text-white font-bold py-2.5 px-6 rounded-lg text-xs transition-all shadow-md shadow-[#387ED1]/30"
                   >
                     Save API Settings
                   </button>
@@ -443,8 +442,8 @@ export function App() {
             )}
           </div>
 
-          {/* MOBILE LAYOUT VIEWS (< 1024px) */}
-          <div className="lg:hidden h-[calc(100vh-180px)] min-h-[500px]">
+          {/* ZERODHA KITE MOBILE LAYOUT VIEWS (< 1024px) */}
+          <div className="lg:hidden h-[calc(100vh-170px)] min-h-[500px]">
             {activeMobileTab === 'watchlist' && (
               <WatchlistPanel
                 watchlist={watchlist}
@@ -454,14 +453,15 @@ export function App() {
               />
             )}
 
-            {activeMobileTab === 'trade' && (
-              <OrderEntryPanel
-                selectedStock={selectedStock}
-                onOrderPlaced={handleOrderPlaced}
+            {activeMobileTab === 'orders' && (
+              <OrdersPanel
+                orders={orders}
+                onOrdersUpdated={handleOrdersUpdated}
+                onDuplicateOrder={handleDuplicateOrder}
               />
             )}
 
-            {activeMobileTab === 'positions' && (
+            {activeMobileTab === 'portfolio' && (
               <div className="flex flex-col gap-3 h-full">
                 <PortfolioCard portfolio={portfolio} />
                 <div className="flex-1 overflow-hidden">
@@ -473,22 +473,51 @@ export function App() {
               </div>
             )}
 
-            {activeMobileTab === 'orders' && (
-              <OrdersPanel
-                orders={orders}
-                onOrdersUpdated={handleOrdersUpdated}
-                onDuplicateOrder={handleDuplicateOrder}
-              />
+            {activeMobileTab === 'baskets' && (
+              <ActivityFeed activities={activities} />
             )}
 
-            {activeMobileTab === 'activity' && (
-              <ActivityFeed activities={activities} />
+            {activeMobileTab === 'profile' && (
+              <div className="bg-[#121721] border border-[#1E2638] rounded-xl p-5 space-y-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-[#387ED1] to-teal-500 flex items-center justify-center text-white font-bold text-lg">
+                    <User className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-100">{zerodhaStatus.user_name}</h3>
+                    <p className="text-xs text-slate-400 font-mono">{zerodhaStatus.client_id}</p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-[#0D111A] border border-[#1E2638] rounded-xl text-xs space-y-2">
+                  <div className="flex justify-between items-center py-1 border-b border-[#1E2638]">
+                    <span className="text-slate-400">Broker:</span>
+                    <span className="font-semibold text-slate-200">Zerodha Broking Ltd.</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-[#1E2638]">
+                    <span className="text-slate-400">Status:</span>
+                    <span className={`font-semibold ${zerodhaStatus.connected ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {zerodhaStatus.connected ? '🟢 Zerodha Live Active' : '🟡 Disconnected / Sandbox'}
+                    </span>
+                  </div>
+                </div>
+
+                <a
+                  href={zerodhaStatus.login_url || `https://kite.zerodha.com/connect/login?v=3&api_key=${apiKeyInput || 'YOUR_KEY'}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full bg-[#387ED1] hover:bg-[#2C68B2] text-white font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#387ED1]/30"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Login via Zerodha OAuth (Live Session)
+                </a>
+              </div>
             )}
           </div>
         </main>
       </div>
 
-      {/* Mobile Bottom Navigation Bar */}
+      {/* Mobile Bottom Navigation Bar (Zerodha Kite App Style) */}
       <MobileBottomNav
         activeMobileTab={activeMobileTab}
         setActiveMobileTab={setActiveMobileTab}

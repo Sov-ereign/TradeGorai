@@ -26,80 +26,97 @@ class RenameGroupRequest(BaseModel):
 
 @router.get("", response_model=List[Dict[str, Any]])
 async def get_watchlists():
-    """Fetch all named watchlists (Holdings, Positions, Custom Watchlists)"""
+    """Fetch 7 Zerodha Kite Watchlists synced with Holdings, Positions, and F&O"""
     watchlists = list(db_instance.memory_watchlists)
 
     # If Zerodha is connected live, pull real account watchlists & holdings dynamically
-    if not zerodha_service.is_mock_mode and zerodha_service.kite:
-        try:
-            live_groups = []
-            
-            # Group 1: Zerodha Holdings
-            live_h = zerodha_service.get_live_holdings()
-            if live_h:
-                h_items = []
-                for item in live_h:
-                    h_items.append({
-                        "symbol": item["symbol"],
-                        "name": item["name"],
-                        "ltp": item["ltp"],
-                        "change": round((item["ltp"] - item["avg_price"]) / item["avg_price"] * 100, 2) if item["avg_price"] > 0 else 0.0,
-                        "high": round(item["ltp"] * 1.02, 2),
-                        "low": round(item["ltp"] * 0.98, 2),
-                        "starred": True,
-                        "exchange": item.get("exchange", "NSE")
-                    })
-                live_groups.append({
-                    "id": "wl-zerodha-holdings",
-                    "name": "Zerodha Holdings",
-                    "is_default": True,
-                    "items": h_items
+    live_h = zerodha_service.get_live_holdings() if not zerodha_service.is_mock_mode else None
+    live_p = zerodha_service.get_live_positions() if not zerodha_service.is_mock_mode else None
+
+    # Construct 7 Zerodha Kite Watchlist Tabs
+    h_items = []
+    if live_h:
+        for item in live_h:
+            h_items.append({
+                "symbol": item["symbol"],
+                "name": item["name"],
+                "ltp": item["ltp"],
+                "change": round((item["ltp"] - item["avg_price"]) / item["avg_price"] * 100, 2) if item["avg_price"] > 0 else 0.0,
+                "high": round(item["ltp"] * 1.02, 2),
+                "low": round(item["ltp"] * 0.98, 2),
+                "starred": True,
+                "exchange": item.get("exchange", "NSE")
+            })
+
+    p_items = []
+    if live_p:
+        for pos in live_p:
+            if pos.get("status") == "OPEN":
+                p_items.append({
+                    "symbol": pos["symbol"],
+                    "name": pos["symbol"],
+                    "ltp": pos["current_price"],
+                    "change": pos["pnl_percent"],
+                    "high": round(pos["current_price"] * 1.02, 2),
+                    "low": round(pos["current_price"] * 0.98, 2),
+                    "starred": True,
+                    "exchange": "NSE"
                 })
 
-            # Group 2: Zerodha Positions
-            live_p = zerodha_service.get_live_positions()
-            if live_p:
-                p_items = []
-                for pos in live_p:
-                    if pos.get("status") == "OPEN":
-                        p_items.append({
-                            "symbol": pos["symbol"],
-                            "name": pos["symbol"],
-                            "ltp": pos["current_price"],
-                            "change": pos["pnl_percent"],
-                            "high": round(pos["current_price"] * 1.02, 2),
-                            "low": round(pos["current_price"] * 0.98, 2),
-                            "starred": True,
-                            "exchange": "NSE"
-                        })
-                live_groups.append({
-                    "id": "wl-zerodha-positions",
-                    "name": "Live Positions",
-                    "is_default": False,
-                    "items": p_items
-                })
+    # Get custom added items from memory
+    custom_items_1 = watchlists[0]["items"] if watchlists else []
 
-            # Merge with user's custom created watchlists
-            for custom_wl in watchlists:
-                if not custom_wl["id"].startswith("wl-zerodha"):
-                    live_groups.append(custom_wl)
+    kite_watchlists = [
+        {
+            "id": "wl-1",
+            "name": "Watchlist 1",
+            "is_default": True,
+            "items": h_items if h_items else custom_items_1
+        },
+        {
+            "id": "wl-2",
+            "name": "Watchlist 2",
+            "is_default": False,
+            "items": p_items
+        },
+        {
+            "id": "wl-3",
+            "name": "Watchlist 3 (F&O)",
+            "is_default": False,
+            "items": []
+        },
+        {
+            "id": "wl-4",
+            "name": "Watchlist 4",
+            "is_default": False,
+            "items": []
+        },
+        {
+            "id": "wl-5",
+            "name": "Watchlist 5",
+            "is_default": False,
+            "items": []
+        },
+        {
+            "id": "wl-6",
+            "name": "Watchlist 6",
+            "is_default": False,
+            "items": []
+        },
+        {
+            "id": "wl-7",
+            "name": "Watchlist 7",
+            "is_default": False,
+            "items": []
+        }
+    ]
 
-            if live_groups:
-                return live_groups
-        except Exception as e:
-            print(f"Zerodha live watchlist sync error: {e}")
+    # Merge custom created groups if any exist
+    for custom_wl in watchlists:
+        if not any(k["id"] == custom_wl["id"] for k in kite_watchlists):
+            kite_watchlists.append(custom_wl)
 
-    # Fallback to MongoDB / memory store
-    if db_instance.is_connected and db_instance.db is not None:
-        try:
-            cursor = db_instance.db.watchlists.find({}, {"_id": 0})
-            items = await cursor.to_list(length=20)
-            if items:
-                return items
-        except Exception:
-            pass
-
-    return watchlists
+    return kite_watchlists
 
 @router.post("/group", response_model=Dict[str, Any])
 async def create_watchlist_group(req: CreateGroupRequest):
@@ -111,14 +128,7 @@ async def create_watchlist_group(req: CreateGroupRequest):
         "items": []
     }
     db_instance.memory_watchlists.append(new_group)
-
-    if db_instance.is_connected and db_instance.db is not None:
-        try:
-            await db_instance.db.watchlists.insert_one(new_group.copy())
-        except Exception as e:
-            print(f"MongoDB write error: {e}")
-
-    return {"message": f"Watchlist group '{req.name}' created", "group": new_group}
+    return {"message": f"Watchlist '{req.name}' created", "group": new_group}
 
 @router.put("/group/{group_id}/rename", response_model=Dict[str, Any])
 async def rename_watchlist_group(group_id: str, req: RenameGroupRequest):
@@ -153,15 +163,19 @@ async def add_to_watchlist(item: WatchlistAddRequest):
             target_group = g
             break
     
-    if not target_group and db_instance.memory_watchlists:
-        target_group = db_instance.memory_watchlists[0]
+    if not target_group:
+        target_group = {
+            "id": target_group_id,
+            "name": "Watchlist 1",
+            "items": []
+        }
+        db_instance.memory_watchlists.append(target_group)
 
-    if target_group:
-        # Check duplicate
-        for s in target_group["items"]:
-            if s["symbol"] == item.symbol:
-                return {"message": f"{item.symbol} is already in {target_group['name']}", "item": s}
-        target_group["items"].append(new_stock)
+    # Check duplicate
+    for s in target_group["items"]:
+        if s["symbol"] == item.symbol:
+            return {"message": f"{item.symbol} is already in {target_group['name']}", "item": s}
+    target_group["items"].append(new_stock)
 
     return {"message": f"Added {item.symbol} to watchlist", "item": new_stock}
 
