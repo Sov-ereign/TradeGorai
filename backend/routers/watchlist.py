@@ -24,16 +24,37 @@ class CreateGroupRequest(BaseModel):
 class RenameGroupRequest(BaseModel):
     name: str
 
+DEFAULT_FO_INSTRUMENTS = [
+    {"symbol": "NIFTY50", "name": "Nifty 50 Index", "ltp": 24780.50, "change": 0.65, "high": 24850.00, "low": 24650.00, "starred": True, "exchange": "NSE"},
+    {"symbol": "BANKNIFTY", "name": "Bank Nifty Index", "ltp": 51420.10, "change": 0.85, "high": 51600.00, "low": 51200.00, "starred": True, "exchange": "NSE"},
+    {"symbol": "NIFTY 24AUG FUT", "name": "Nifty August Future", "ltp": 24810.00, "change": 0.68, "high": 24890.00, "low": 24680.00, "starred": False, "exchange": "NFO"},
+    {"symbol": "BANKNIFTY 24AUG FUT", "name": "Bank Nifty August Future", "ltp": 51480.00, "change": 0.90, "high": 51680.00, "low": 51240.00, "starred": False, "exchange": "NFO"},
+    {"symbol": "NIFTY 24800 CE", "name": "Nifty 24800 Call Option", "ltp": 185.40, "change": 12.50, "high": 210.00, "low": 140.00, "starred": False, "exchange": "NFO"},
+    {"symbol": "NIFTY 24800 PE", "name": "Nifty 24800 Put Option", "ltp": 142.10, "change": -8.30, "high": 175.00, "low": 120.00, "starred": False, "exchange": "NFO"},
+    {"symbol": "BANKNIFTY 51500 CE", "name": "Bank Nifty 51500 Call Option", "ltp": 340.50, "change": 18.20, "high": 390.00, "low": 280.00, "starred": False, "exchange": "NFO"},
+    {"symbol": "BANKNIFTY 51000 PE", "name": "Bank Nifty 51000 Put Option", "ltp": 210.30, "change": -14.10, "high": 260.00, "low": 180.00, "starred": False, "exchange": "NFO"}
+]
+
+DEFAULT_BLUECHIP_INSTRUMENTS = [
+    {"symbol": "RELIANCE", "name": "Reliance Industries Ltd", "ltp": 2980.50, "change": 1.45, "high": 3012.00, "low": 2940.10, "starred": True, "exchange": "NSE"},
+    {"symbol": "TATAMOTORS", "name": "Tata Motors Limited", "ltp": 1045.20, "change": 2.85, "high": 1060.00, "low": 1020.00, "starred": True, "exchange": "NSE"},
+    {"symbol": "INFY", "name": "Infosys Limited", "ltp": 1820.75, "change": -0.65, "high": 1845.00, "low": 1805.50, "starred": False, "exchange": "NSE"},
+    {"symbol": "HDFCBANK", "name": "HDFC Bank Limited", "ltp": 1640.30, "change": 0.90, "high": 1658.00, "low": 1622.00, "starred": False, "exchange": "NSE"},
+    {"symbol": "TCS", "name": "Tata Consultancy Services", "ltp": 4250.00, "change": -1.20, "high": 4310.00, "low": 4210.00, "starred": False, "exchange": "NSE"},
+    {"symbol": "ICICIBANK", "name": "ICICI Bank Limited", "ltp": 1210.40, "change": 1.10, "high": 1225.00, "low": 1195.00, "starred": False, "exchange": "NSE"},
+    {"symbol": "SBIN", "name": "State Bank of India", "ltp": 845.60, "change": 0.45, "high": 855.00, "low": 838.00, "starred": False, "exchange": "NSE"}
+]
+
 @router.get("", response_model=List[Dict[str, Any]])
 async def get_watchlists():
-    """Fetch 7 Zerodha Kite Watchlists synced with Holdings, Positions, and F&O"""
+    """Fetch 7 Zerodha Kite Watchlists synced with Holdings, Positions, F&O, and user additions"""
     watchlists = list(db_instance.memory_watchlists)
 
-    # If Zerodha is connected live, pull real account watchlists & holdings dynamically
+    # Pull live Zerodha holdings & positions if connected
     live_h = zerodha_service.get_live_holdings() if not zerodha_service.is_mock_mode else None
     live_p = zerodha_service.get_live_positions() if not zerodha_service.is_mock_mode else None
 
-    # Construct 7 Zerodha Kite Watchlist Tabs
+    # Construct Holdings items
     h_items = []
     if live_h:
         for item in live_h:
@@ -48,6 +69,7 @@ async def get_watchlists():
                 "exchange": item.get("exchange", "NSE")
             })
 
+    # Construct Positions items
     p_items = []
     if live_p:
         for pos in live_p:
@@ -63,51 +85,63 @@ async def get_watchlists():
                     "exchange": "NSE"
                 })
 
-    # Get custom added items from memory
-    custom_items_1 = watchlists[0]["items"] if watchlists else []
+    # Get custom added items from memory for each group ID
+    def get_group_items(gid: str, fallback_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        for g in watchlists:
+            if g["id"] == gid and g.get("items"):
+                # Merge custom items with fallback/synced items without duplicates
+                merged = list(g["items"])
+                existing = {s["symbol"] for s in merged}
+                for f in fallback_items:
+                    if f["symbol"] not in existing:
+                        merged.append(f)
+                        existing.add(f["symbol"])
+                return merged
+        return fallback_items
 
+    # 7 Zerodha Kite Watchlist Tabs
     kite_watchlists = [
         {
             "id": "wl-1",
             "name": "Watchlist 1",
             "is_default": True,
-            "items": h_items if h_items else custom_items_1
+            "items": get_group_items("wl-1", h_items if h_items else DEFAULT_BLUECHIP_INSTRUMENTS)
         },
         {
             "id": "wl-2",
             "name": "Watchlist 2",
             "is_default": False,
-            "items": p_items
+            "items": get_group_items("wl-2", p_items)
         },
         {
             "id": "wl-3",
             "name": "Watchlist 3 (F&O)",
             "is_default": False,
-            "items": []
+            "items": get_group_items("wl-3", DEFAULT_FO_INSTRUMENTS)
         },
         {
             "id": "wl-4",
             "name": "Watchlist 4",
             "is_default": False,
-            "items": []
+            "items": get_group_items("wl-4", [])
         },
         {
             "id": "wl-5",
             "name": "Watchlist 5",
             "is_default": False,
-            "items": []
+            "items": get_group_items("wl-5", [])
         },
         {
             "id": "wl-6",
             "name": "Watchlist 6",
             "is_default": False,
-            "items": []
+            "items": get_group_items("wl-6", [])
         },
         {
             "id": "wl-7",
             "name": "Watchlist 7",
             "is_default": False,
-            "items": []
+            "items": get_group_items("wl-7", [])
         }
     ]
 
