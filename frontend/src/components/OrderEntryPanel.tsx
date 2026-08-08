@@ -16,15 +16,19 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
   selectedStock,
   onOrderPlaced,
 }) => {
-  const stock = selectedStock || {
-    symbol: 'TATAMOTORS',
-    name: 'Tata Motors Limited',
-    ltp: 1045.20,
-    change: 2.85,
-    high: 1060.00,
-    low: 1020.00,
-    exchange: 'NSE',
-  };
+  if (!selectedStock) {
+    return (
+      <div className="bg-[#121721] border border-[#1E2638] rounded-xl p-6 h-full flex flex-col items-center justify-center text-center">
+        <Zap className="w-8 h-8 text-emerald-400 mb-2 opacity-60" />
+        <h3 className="text-sm font-bold text-slate-200">No Instrument Selected</h3>
+        <p className="text-xs text-slate-400 mt-1 max-w-xs">
+          Search any stock, index option, or futures contract above to open order placement entry.
+        </p>
+      </div>
+    );
+  }
+
+  const stock = selectedStock;
 
   const [qty, setQty] = useState<number>(50);
   const [product, setProduct] = useState<ProductType>('CNC');

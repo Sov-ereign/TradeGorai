@@ -19,20 +19,26 @@ def is_market_open_ist() -> bool:
 
 @router.get("/stocks", response_model=List[Dict[str, Any]])
 async def search_stocks(q: str = ""):
-    # Live Search across all 90,000+ Zerodha Exchange Instruments (NSE, BSE, NFO)
+    # Live Search across all 53,800+ Zerodha Exchange Instruments (NSE, BSE, NFO)
     return zerodha_service.search_catalog(q)
 
 @router.get("/status")
 async def get_market_status():
     is_open = is_market_open_ist()
+    
+    # Try fetching real-time index quotes from Zerodha API
+    live_indices = zerodha_service.get_live_index_quotes()
+    if not live_indices:
+        live_indices = {
+            "NIFTY50": {"value": 24780.50, "change": 160.20, "percent": 0.65},
+            "BANKNIFTY": {"value": 51420.10, "change": 433.00, "percent": 0.85},
+            "SENSEX": {"value": 81350.25, "change": 520.40, "percent": 0.64}
+        }
+
     return {
         "status": "OPEN" if is_open else "CLOSED",
         "exchange": "NSE / NFO / BSE",
         "market_hours": "09:15 - 15:30 IST",
         "message": "NSE Market Live" if is_open else "NSE Market Closed (Opens 09:15 IST)",
-        "indices": {
-            "NIFTY50": {"value": 24780.50, "change": 160.20, "percent": 0.65},
-            "BANKNIFTY": {"value": 51420.10, "change": 433.00, "percent": 0.85},
-            "SENSEX": {"value": 81350.25, "change": 520.40, "percent": 0.64}
-        }
+        "indices": live_indices
     }

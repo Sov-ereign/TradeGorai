@@ -21,10 +21,10 @@ class ZerodhaService:
         self.is_mock_mode = settings.KITE_MOCK_MODE or not (self.api_key and self.access_token)
         self.kite = None
         self.user_profile = {
-            "user_name": "Pro Trader",
-            "client_id": "ZF8921",
+            "user_name": "Zerodha Guest",
+            "client_id": "NOT_CONNECTED",
             "user_type": "individual",
-            "email": "trader@tradegorai.ai"
+            "email": ""
         }
         self.instruments_catalog: List[Dict[str, Any]] = []
         self._load_session_file()
@@ -100,6 +100,30 @@ class ZerodhaService:
                 logger.warning(f"Error fetching live Zerodha quote for search: {e}")
 
         return matched
+
+    def get_live_index_quotes(self) -> Optional[Dict[str, Any]]:
+        if not self.is_mock_mode and self.kite:
+            try:
+                quotes = self.kite.quote(["NSE:NIFTY 50", "NSE:NIFTY BANK", "BSE:SENSEX"])
+                nifty = quotes.get("NSE:NIFTY 50", {})
+                bank = quotes.get("NSE:NIFTY BANK", {})
+                sensex = quotes.get("BSE:SENSEX", {})
+
+                def fmt(data):
+                    val = data.get("last_price", 0.0)
+                    chg = data.get("net_change", 0.0)
+                    close = data.get("ohlc", {}).get("close", val)
+                    pct = (chg / close * 100) if close > 0 else 0.0
+                    return {"value": val, "change": round(chg, 2), "percent": round(pct, 2)}
+
+                return {
+                    "NIFTY50": fmt(nifty),
+                    "BANKNIFTY": fmt(bank),
+                    "SENSEX": fmt(sensex)
+                }
+            except Exception as e:
+                logger.error(f"Error fetching index quotes from Zerodha: {e}")
+        return None
 
     def _load_session_file(self):
         if os.path.exists(SESSION_FILE):
