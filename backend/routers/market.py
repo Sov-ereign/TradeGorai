@@ -26,14 +26,8 @@ async def search_stocks(q: str = ""):
 async def get_market_status():
     is_open = is_market_open_ist()
     
-    # Try fetching real-time index quotes from Zerodha API
-    live_indices = zerodha_service.get_live_index_quotes()
-    if not live_indices:
-        live_indices = {
-            "NIFTY50": {"value": 24780.50, "change": 160.20, "percent": 0.65},
-            "BANKNIFTY": {"value": 51420.10, "change": 433.00, "percent": 0.85},
-            "SENSEX": {"value": 81350.25, "change": 520.40, "percent": 0.64}
-        }
+    # Fetch real-time index quotes from Zerodha API dynamically
+    live_indices = zerodha_service.get_live_index_quotes() or {}
 
     return {
         "status": "OPEN" if is_open else "CLOSED",

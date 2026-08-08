@@ -21,9 +21,9 @@ class ZerodhaService:
         self.is_mock_mode = settings.KITE_MOCK_MODE or not (self.api_key and self.access_token)
         self.kite = None
         self.user_profile = {
-            "user_name": "Zerodha Guest",
-            "client_id": "NOT_CONNECTED",
-            "user_type": "individual",
+            "user_name": "Not Connected",
+            "client_id": "Connect Zerodha API",
+            "user_type": "guest",
             "email": ""
         }
         self.instruments_catalog: List[Dict[str, Any]] = []

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Star, Trash2, Plus, Search, TrendingUp, TrendingDown, Layers } from 'lucide-react';
+import { Star, Trash2, Plus, Search, TrendingUp, TrendingDown, Layers, ListOrdered } from 'lucide-react';
 import type { Stock } from '../types/trading';
 import { addToWatchlist, removeFromWatchlist, toggleStarStock, searchStocks } from '../services/api';
 
@@ -131,8 +131,12 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
       {/* Watchlist Items Scrollable List */}
       <div className="flex-1 overflow-y-auto divide-y divide-[#1E2638]/40">
         {filteredList.length === 0 ? (
-          <div className="p-6 text-center text-xs text-slate-400">
-            No stocks found in watchlist. Click <b>Add Stock</b> to search and track symbols.
+          <div className="p-8 text-center text-xs text-slate-400 flex flex-col items-center justify-center">
+            <ListOrdered className="w-8 h-8 text-slate-600 mb-2 opacity-50" />
+            <p className="font-semibold text-slate-300">Watchlist Empty</p>
+            <p className="text-[11px] text-slate-500 mt-1 max-w-xs">
+              Search any stock or F&O contract above to add it, or connect Zerodha to sync live holdings.
+            </p>
           </div>
         ) : (
           filteredList.map((stock) => {

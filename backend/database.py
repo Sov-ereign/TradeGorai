@@ -10,64 +10,13 @@ class Database:
     db: Any = None
     is_connected: bool = False
     
-    # Real dynamic Watchlist (persisted in MongoDB Atlas or in-memory)
-    memory_watchlist: List[Dict[str, Any]] = [
-        {
-            "symbol": "RELIANCE",
-            "name": "Reliance Industries Ltd",
-            "ltp": 2980.50,
-            "change": 1.45,
-            "high": 3012.00,
-            "low": 2940.10,
-            "starred": True,
-            "exchange": "NSE"
-        },
-        {
-            "symbol": "TATAMOTORS",
-            "name": "Tata Motors Limited",
-            "ltp": 1045.20,
-            "change": 2.85,
-            "high": 1060.00,
-            "low": 1020.00,
-            "starred": True,
-            "exchange": "NSE"
-        },
-        {
-            "symbol": "INFY",
-            "name": "Infosys Limited",
-            "ltp": 1820.75,
-            "change": -0.65,
-            "high": 1845.00,
-            "low": 1805.50,
-            "starred": True,
-            "exchange": "NSE"
-        },
-        {
-            "symbol": "HDFCBANK",
-            "name": "HDFC Bank Limited",
-            "ltp": 1640.30,
-            "change": 0.90,
-            "high": 1658.00,
-            "low": 1622.00,
-            "starred": False,
-            "exchange": "NSE"
-        },
-        {
-            "symbol": "TCS",
-            "name": "Tata Consultancy Services",
-            "ltp": 4250.00,
-            "change": -1.20,
-            "high": 4310.00,
-            "low": 4210.00,
-            "starred": False,
-            "exchange": "NSE"
-        }
-    ]
+    # Dynamic Watchlist (starts completely clean, populated by user or Zerodha sync)
+    memory_watchlist: List[Dict[str, Any]] = []
     
     # Dynamic Orders list (starts clean)
     memory_orders: List[Dict[str, Any]] = []
 
-    # Dynamic Positions list (starts clean, populated only by placed orders)
+    # Dynamic Positions list (starts clean, populated only by placed orders/Zerodha)
     memory_positions: List[Dict[str, Any]] = []
 
     # Dynamic Portfolio metrics
@@ -76,9 +25,9 @@ class Database:
         "today_pnl_percent": 0.00,
         "overall_pnl": 0.00,
         "overall_pnl_percent": 0.00,
-        "available_margin": 100000.00,
+        "available_margin": 0.00,
         "used_margin": 0.00,
-        "capital": 100000.00,
+        "capital": 0.00,
         "total_investment": 0.00
     }
 
