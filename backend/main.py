@@ -15,6 +15,7 @@ from database import connect_to_mongo, close_mongo_connection, db_instance
 from zerodha_service import zerodha_service
 
 from routers import watchlist, orders, positions, portfolio, market, strategy
+from routers.market import is_market_open_ist
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tradegorai.main")
@@ -178,7 +179,6 @@ async def zerodha_postback_webhook(request: Request):
 
         order_id = payload.get("order_id")
         status = str(payload.get("status", "")).upper()
-        symbol = payload.get("tradingsymbol")
 
         for ord_item in db_instance.memory_orders:
             if ord_item["id"] == str(order_id):
@@ -244,12 +244,12 @@ async def websocket_ticks_endpoint(websocket: WebSocket):
         ws_manager.disconnect(websocket)
 
 async def broadcast_live_ticks():
-    """Background Task: Broadcast Live Prices for active watchlists & open positions"""
+    """Background Task: Broadcast Live Prices for active watchlists & open positions (Strict IST Market Hours Only)"""
     while True:
         try:
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.0)
             
-            market_open = True
+            market_open = is_market_open_ist()
             ticks = {}
             
             for wl in db_instance.memory_watchlists:
@@ -257,6 +257,8 @@ async def broadcast_live_ticks():
                     symbol = item["symbol"]
                     current_ltp = item["ltp"]
 
+                    # Only simulate ticks during active NSE market hours (Mon-Fri 09:15 - 15:30 IST)
+                    # On weekends (Saturdays & Sundays) or off-market hours, prices remain 100% frozen at last market close!
                     if market_open:
                         delta = round(random.uniform(-0.003, 0.003) * current_ltp, 2)
                         new_ltp = round(max(10.0, current_ltp + delta), 2)
