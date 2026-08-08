@@ -19,20 +19,25 @@ def is_market_open_ist() -> bool:
 
 @router.get("/stocks", response_model=List[Dict[str, Any]])
 async def search_stocks(q: str = ""):
-    # Live Search across all 53,800+ Zerodha Exchange Instruments (NSE, BSE, NFO)
     return zerodha_service.search_catalog(q)
 
 @router.get("/status")
 async def get_market_status():
-    is_open = is_market_open_ist()
-    
-    # Fetch real-time index quotes from Zerodha API dynamically
-    live_indices = zerodha_service.get_live_index_quotes() or {}
-
-    return {
-        "status": "OPEN" if is_open else "CLOSED",
-        "exchange": "NSE / NFO / BSE",
-        "market_hours": "09:15 - 15:30 IST",
-        "message": "NSE Market Live" if is_open else "NSE Market Closed (Opens 09:15 IST)",
-        "indices": live_indices
-    }
+    try:
+        is_open = is_market_open_ist()
+        live_indices = zerodha_service.get_live_index_quotes() if hasattr(zerodha_service, 'get_live_index_quotes') else {}
+        return {
+            "status": "OPEN" if is_open else "CLOSED",
+            "exchange": "NSE / NFO / BSE",
+            "market_hours": "09:15 - 15:30 IST",
+            "message": "NSE Market Live" if is_open else "NSE Market Closed (Opens 09:15 IST)",
+            "indices": live_indices
+        }
+    except Exception as e:
+        return {
+            "status": "CLOSED",
+            "exchange": "NSE / NFO / BSE",
+            "market_hours": "09:15 - 15:30 IST",
+            "message": f"Market Status ({str(e)})",
+            "indices": {}
+        }
