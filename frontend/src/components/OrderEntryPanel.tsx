@@ -86,7 +86,8 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
       onOrderPlaced(`🟢 ${side} order placed for ${qty} shares of ${stock.symbol} @ ₹${currentExecPrice.toFixed(2)}`);
     } catch (err: any) {
       console.error(err);
-      onOrderPlaced(`🔴 Order failed: ${err.message || 'Error executing Zerodha order'}`);
+      const detailMsg = err.response?.data?.detail || err.message || 'Error executing Zerodha order';
+      onOrderPlaced(`🔴 Order note: ${detailMsg}`);
     } finally {
       setIsSubmitting(false);
     }

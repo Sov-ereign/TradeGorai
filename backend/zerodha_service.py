@@ -157,7 +157,6 @@ class ZerodhaService:
         return res
 
     def get_live_index_quotes(self) -> Dict[str, Any]:
-        """Fetch live index quotes for Nifty 50, Bank Nifty, and Sensex"""
         nifty_quote = self.fetch_real_quote("NIFTY 50", "NSE")
         bank_quote = self.fetch_real_quote("NIFTY BANK", "NSE")
         sensex_quote = self.fetch_real_quote("SENSEX", "BSE")
@@ -440,6 +439,8 @@ class ZerodhaService:
                 except Exception as e2:
                     err_msg2 = str(e2)
                     logger.error(f"Zerodha API exception: {err_msg2}")
+                    if "token" in err_msg2.lower() or "session" in err_msg2.lower() or "invalid" in err_msg2.lower():
+                        raise ValueError("Zerodha Token Expired: Please click 'Login with Zerodha Kite' in Settings to refresh your live session.")
                     raise ValueError(f"Zerodha API Rejected Order: {err_msg2}")
 
             est_val = price * qty
