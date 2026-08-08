@@ -403,6 +403,8 @@ class ZerodhaService:
             real_id = None
             is_amo_submitted = False
             token_failed = False
+            rejection_reason = None
+
             try:
                 logger.info(f"Submitting REGULAR order to Zerodha API for {symbol}...")
                 real_id = self.kite.place_order(
@@ -421,7 +423,6 @@ class ZerodhaService:
                 err_msg = str(e)
                 logger.warning(f"Regular Zerodha order note ({err_msg}). Retrying as ZERODHA AMO (After Market Order)...")
                 
-                # Check if access token expired
                 if "token" in err_msg.lower() or "session" in err_msg.lower() or "invalid" in err_msg.lower():
                     token_failed = True
 
@@ -450,7 +451,7 @@ class ZerodhaService:
                         if "token" in err_msg2.lower() or "session" in err_msg2.lower() or "invalid" in err_msg2.lower():
                             token_failed = True
                         else:
-                            raise ValueError(f"Zerodha API Rejected Order: {err_msg2}")
+                            rejection_reason = err_msg2
 
             if token_failed:
                 logger.warning("Zerodha access token expired or invalid. Resetting to Paper Mode.")
@@ -482,6 +483,28 @@ class ZerodhaService:
                     "net_amount": round(est_val + charges, 2),
                     "validity": "DAY",
                     "notes": f"Official Zerodha Order (ID: {real_id})"
+                }
+            elif rejection_reason:
+                est_val = price * qty
+                return {
+                    "id": f"Z-REJ-{int(time.time()*1000)}",
+                    "time": time.strftime("%H:%M:%S"),
+                    "symbol": symbol,
+                    "side": side,
+                    "qty": qty,
+                    "price": price,
+                    "product": product,
+                    "order_type": order_type,
+                    "exchange": exchange,
+                    "target": target,
+                    "stop_loss": stop_loss,
+                    "status": "REJECTED",
+                    "est_val": est_val,
+                    "brokerage": 0.0,
+                    "charges": 0.0,
+                    "net_amount": est_val,
+                    "validity": "DAY",
+                    "notes": f"🔴 Zerodha API Note: {rejection_reason}"
                 }
 
         # PAPER TRADING MODE
