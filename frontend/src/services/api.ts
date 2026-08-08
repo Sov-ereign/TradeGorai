@@ -1,10 +1,17 @@
 import axios from 'axios';
 import type { Stock, Order, Position, PortfolioMetrics, AlgoStrategy, WatchlistGroup } from '../types/trading';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+function getApiBaseUrl(): string {
+  let base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+  base = base.trim().replace(/\/+$/, '');
+  if (!base.endsWith('/api')) {
+    base += '/api';
+  }
+  return base;
+}
 
 const api = axios.create({
-  baseURL: API_BASE,
+  baseURL: getApiBaseUrl(),
   headers: {
     'Content-Type': 'application/json',
   },

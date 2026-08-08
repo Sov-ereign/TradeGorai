@@ -21,13 +21,10 @@ logger = logging.getLogger("tradegorai.main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Connect to MongoDB & load instrument catalog
     await connect_to_mongo()
     asyncio.create_task(asyncio.to_thread(zerodha_service.load_instruments_catalog))
-    # Start background tick & virtual trigger engine
     tick_task = asyncio.create_task(broadcast_live_ticks())
     yield
-    # Shutdown: Close connections
     tick_task.cancel()
     await close_mongo_connection()
 
@@ -38,7 +35,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Allowed Origins for CORS
 origins = [
     "https://trade-gorai.vercel.app",
     "http://localhost:5173",
@@ -47,7 +43,6 @@ origins = [
     "http://127.0.0.1:3000",
 ]
 
-# Enable Starlette CORSMiddleware with origin regex for Vercel previews
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -57,7 +52,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global Middleware to guarantee CORS headers on ALL requests & OPTIONS preflight
 @app.middleware("http")
 async def cors_handler_middleware(request: Request, call_next):
     origin = request.headers.get("origin", "")
@@ -103,6 +97,14 @@ async def get_watchlist_root():
 async def get_orders_root(status: Optional[str] = None):
     return await orders.get_orders(status)
 
+@app.post("/orders")
+async def place_order_root(order_req: orders.OrderCreateRequest):
+    return await orders.place_order(order_req)
+
+@app.delete("/orders/clear")
+async def clear_orders_root():
+    return await orders.clear_order_history()
+
 @app.get("/positions")
 async def get_positions_root():
     return await positions.get_positions()
@@ -110,6 +112,14 @@ async def get_positions_root():
 @app.get("/portfolio")
 async def get_portfolio_root():
     return await portfolio.get_portfolio_summary()
+
+@app.get("/market/status")
+async def get_market_status_root():
+    return await market.get_market_status()
+
+@app.get("/market/stocks")
+async def search_stocks_root(q: str = ""):
+    return await market.search_stocks(q)
 
 class ZerodhaCredentialsRequest(BaseModel):
     api_key: str
@@ -169,33 +179,33 @@ async def zerodha_postback_webhook(request: Request):
         order_id = payload.get("order_id")
         status = str(payload.get("status", "")).upper()
         symbol = payload.get("tradingsymbol")
-        side = payload.get("transaction_type")
-        qty = payload.get("quantity")
-        price = payload.get("average_price") or payload.get("price")
 
         for ord_item in db_instance.memory_orders:
             if ord_item["id"] == str(order_id):
                 ord_item["status"] = "EXECUTED" if status == "COMPLETE" else status
                 break
 
-        event_payload = {
-            "type": "ORDER_POSTBACK",
-            "order_id": order_id,
-            "status": status,
-            "symbol": symbol,
-            "side": side,
-            "qty": qty,
-            "price": price,
-            "message": f"Postback: Order {order_id} ({symbol}) changed to {status}"
-        }
-        await ws_manager.broadcast(event_payload)
-
-        return {"status": "success", "message": "Postback received and processed"}
+        return {"status": "success", "received_order_id": order_id}
     except Exception as e:
-        logger.error(f"Error processing Zerodha Postback: {e}")
+        logger.error(f"Zerodha Postback Error: {e}")
         return {"status": "error", "message": str(e)}
 
-# WebSocket Manager for Live Market Ticks & Notifications
+@app.get("/api/zerodha/login-url")
+@app.get("/zerodha/login-url")
+async def get_zerodha_login_url(api_key: Optional[str] = None):
+    """Get Zerodha Kite Login URL for OAuth Authentication"""
+    if api_key:
+        zerodha_service.api_key = api_key
+        zerodha_service._init_kite()
+    
+    if not zerodha_service.kite:
+        raise HTTPException(status_code=400, detail="Zerodha API Key not set. Please save API credentials first.")
+    
+    return {
+        "login_url": zerodha_service.kite.login_url(),
+        "api_key": zerodha_service.api_key
+    }
+
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
@@ -203,49 +213,47 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-        logger.info(f"WebSocket client connected. Total clients: {len(self.active_connections)}")
+        logger.info(f"WebSocket client connected. Total active: {len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-            logger.info("WebSocket client disconnected.")
+            logger.info(f"WebSocket client disconnected. Total active: {len(self.active_connections)}")
 
     async def broadcast(self, message: dict):
         for connection in list(self.active_connections):
             try:
                 await connection.send_json(message)
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error broadcasting WebSocket message: {e}")
                 self.disconnect(connection)
 
 ws_manager = ConnectionManager()
 
 @app.websocket("/ws/ticks")
 async def websocket_ticks_endpoint(websocket: WebSocket):
+    """Real-time WebSocket tick streaming endpoint"""
     await ws_manager.connect(websocket)
     try:
         while True:
-            data = await websocket.receive_text()
-            logger.info(f"Received WS payload from client: {data}")
+            await websocket.receive_text()
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
+        logger.error(f"WebSocket connection error: {e}")
         ws_manager.disconnect(websocket)
 
 async def broadcast_live_ticks():
-    """
-    Background Task: Streaming Live Market Ticks & Monitoring Virtual Target / Stop Loss Triggers.
-    Zerodha has 0 knowledge of Target or Stop Loss levels until LTP hits the price!
-    """
+    """Background Task: Broadcast Live Prices for active watchlists & open positions"""
     while True:
         try:
-            await asyncio.sleep(1.5)
-            market_open = market.is_market_open_ist()
-
+            await asyncio.sleep(0.5)
+            
+            market_open = True
             ticks = {}
-            # Update watchlist prices
-            for group in db_instance.memory_watchlists:
-                for item in group.get("items", []):
+            
+            for wl in db_instance.memory_watchlists:
+                for item in wl.get("items", []):
                     symbol = item["symbol"]
                     current_ltp = item["ltp"]
 
@@ -269,9 +277,8 @@ async def broadcast_live_ticks():
                         "timestamp": asyncio.get_event_loop().time()
                     }
 
-            # Monitor Virtual Target & Hidden Stop Loss Triggers on Positions
             for pos in list(db_instance.memory_positions):
-                if pos["status"] == "OPEN":
+                if pos.get("status") == "OPEN":
                     sym = pos["symbol"]
                     current_ltp = ticks.get(sym, {}).get("ltp", pos.get("current_price", pos["avg_price"]))
                     pos["current_price"] = current_ltp
@@ -283,7 +290,6 @@ async def broadcast_live_ticks():
                     target = pos.get("target")
                     stop_loss = pos.get("stop_loss")
 
-                    # Check Long Position Triggers
                     if target and current_ltp >= target:
                         logger.info(f"🎯 VIRTUAL TARGET HIT for {sym} @ {current_ltp} (Target: {target}). Triggering Zerodha Market Exit!")
                         pos["status"] = "CLOSED"
