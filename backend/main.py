@@ -4,9 +4,9 @@ import json
 import random
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 
@@ -38,14 +38,53 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Enable CORS for frontend
+# Allowed Origins for CORS
+origins = [
+    "https://trade-gorai.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+]
+
+# Enable Starlette CORSMiddleware with origin regex for Vercel previews
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Global Middleware to guarantee CORS headers on ALL requests & OPTIONS preflight
+@app.middleware("http")
+async def cors_handler_middleware(request: Request, call_next):
+    origin = request.headers.get("origin", "")
+    if request.method == "OPTIONS":
+        response = Response(status_code=204)
+        response.headers["Access-Control-Allow-Origin"] = origin if origin else "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
+
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        logger.error(f"Unhandled server error: {exc}")
+        response = JSONResponse(
+            status_code=500,
+            content={"detail": "Internal Server Error", "error": str(exc)}
+        )
+
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+    else:
+        response.headers["Access-Control-Allow-Origin"] = "*"
+
+    return response
 
 # Register REST Routers with /api prefix
 app.include_router(watchlist.router)
@@ -249,7 +288,6 @@ async def broadcast_live_ticks():
                         logger.info(f"🎯 VIRTUAL TARGET HIT for {sym} @ {current_ltp} (Target: {target}). Triggering Zerodha Market Exit!")
                         pos["status"] = "CLOSED"
                         
-                        # Send execution to Zerodha API NOW (Zerodha gets notified only upon trigger!)
                         try:
                             zerodha_service.place_order({
                                 "symbol": sym,
