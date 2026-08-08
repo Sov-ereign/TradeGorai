@@ -55,7 +55,6 @@ class ZerodhaService:
         self.instruments_catalog: List[Dict[str, Any]] = []
         self.live_price_cache: Dict[str, Dict[str, Any]] = {}
 
-        # Pre-seed cache with ground truth prices
         for sym, data in REAL_PRICES_MAP.items():
             self.live_price_cache[f"{data['exchange']}:{sym}"] = {
                 "ltp": data["ltp"],
@@ -63,7 +62,6 @@ class ZerodhaService:
                 "time": time.time() + 86400
             }
 
-        # Auto restore persistent session from disk if available
         self._load_session_from_disk()
 
         if self.api_key and self.api_secret:
@@ -129,7 +127,6 @@ class ZerodhaService:
         return data
 
     def fetch_real_quote(self, symbol: str, exchange: str = "NSE") -> Dict[str, float]:
-        """Fetch Real Live Price with Instant Memory Caching"""
         key = f"{exchange}:{symbol}"
         now = time.time()
 
@@ -160,7 +157,6 @@ class ZerodhaService:
         return res
 
     def load_instruments_catalog(self):
-        """Load Zerodha Live Instrument Dump (53,800+ symbols across NSE, BSE, NFO)"""
         if os.path.exists(INSTRUMENTS_FILE):
             try:
                 with open(INSTRUMENTS_FILE, "r") as f:
@@ -209,12 +205,10 @@ class ZerodhaService:
             logger.error(f"Error downloading live instruments catalog: {e}")
 
     def search_instruments(self, query: str, limit: int = 25) -> List[Dict[str, Any]]:
-        """Instant In-Memory Search (< 2ms Execution Time)"""
         if not query or not query.strip():
             return []
         
         q = query.strip().upper()
-        
         matches = []
         for item in self.instruments_catalog:
             sym = item["symbol"].upper()
@@ -225,11 +219,9 @@ class ZerodhaService:
         def score(item):
             sym = item["symbol"].upper()
             exch = item.get("exchange", "NSE").upper()
-            
             is_exact = (sym == q)
             starts_with = sym.startswith(q)
             exch_rank = 0 if exch == "NSE" else (1 if exch == "BSE" else 2)
-            
             if is_exact:
                 return (0, exch_rank, len(sym))
             elif starts_with:
@@ -264,7 +256,6 @@ class ZerodhaService:
         return results
 
     def search_catalog(self, query: str, limit: int = 25) -> List[Dict[str, Any]]:
-        """Alias for search_instruments"""
         return self.search_instruments(query, limit)
 
     def get_status(self) -> Dict[str, Any]:
@@ -275,32 +266,6 @@ class ZerodhaService:
             "client_id": self.user_profile.get("client_id", "TG998877"),
             "login_url": self.kite.login_url() if self.kite else None
         }
-
-    def get_live_index_quotes(self) -> Dict[str, Any]:
-        """Fetch live index prices for Nifty, Bank Nifty, Sensex"""
-        nifty_quote = self.fetch_real_quote("NIFTY 50", "NSE")
-        bank_quote = self.fetch_real_quote("NIFTY BANK", "NSE")
-        sensex_quote = self.fetch_real_quote("SENSEX", "BSE")
-
-        return {
-            "NSE:NIFTY 50": {"last_price": nifty_quote.get("ltp", 24780.50), "net_change": nifty_quote.get("change", 0.65)},
-            "NSE:NIFTY BANK": {"last_price": bank_quote.get("ltp", 51420.10), "net_change": bank_quote.get("change", 0.85)},
-            "BSE:SENSEX": {"last_price": sensex_quote.get("ltp", 81350.25), "net_change": sensex_quote.get("change", 0.70)}
-        }
-
-    def get_live_margins(self) -> Optional[Dict[str, Any]]:
-        if not self.is_mock_mode and self.kite:
-            try:
-                margins = self.kite.margins()
-                equity = margins.get("equity", {})
-                return {
-                    "available_margin": equity.get("available", {}).get("live_balance", 0.0),
-                    "used_margin": equity.get("utilised", {}).get("debits", 0.0),
-                    "capital": equity.get("net", 0.0)
-                }
-            except Exception as e:
-                logger.error(f"Error fetching live margins: {e}")
-        return None
 
     def get_live_orders(self) -> Optional[List[Dict[str, Any]]]:
         if not self.is_mock_mode and self.kite:
@@ -373,7 +338,7 @@ class ZerodhaService:
         return None
 
     def place_order(self, order_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Place Order directly on Zerodha (Returns Real Zerodha Order ID)"""
+        """Place Order directly on Zerodha (Returns Real 19-digit Zerodha Order ID)"""
         symbol = order_data.get("symbol")
         side = order_data.get("side", "BUY").upper()
         qty = int(order_data.get("qty", 1))
@@ -384,7 +349,6 @@ class ZerodhaService:
         target = float(order_data.get("target", 0)) if order_data.get("target") else None
         stop_loss = float(order_data.get("stop_loss", 0)) if order_data.get("stop_loss") else None
 
-        # Resolve real live price if 0 or MARKET order
         quote = self.fetch_real_quote(symbol, exchange)
         if price <= 0:
             price = quote["ltp"]
@@ -449,33 +413,8 @@ class ZerodhaService:
                     logger.info(f"LIVE ZERODHA AMO ORDER PLACED! Real Zerodha Order ID: {real_id}")
                 except Exception as e2:
                     err_msg2 = str(e2)
-                    logger.warning(f"Zerodha API exception note: {err_msg2}. Registering order locally...")
-                    
-                    est_val = price * qty
-                    brokerage = 0.0 if product == "CNC" else min(20.0, est_val * 0.0003)
-                    charges = round(brokerage + 22.50, 2)
-                    order_id = f"TG-{random.randint(100000000000, 999999999999)}"
-
-                    return {
-                        "id": order_id,
-                        "time": time.strftime("%H:%M:%S"),
-                        "symbol": symbol,
-                        "side": side,
-                        "qty": qty,
-                        "price": price,
-                        "product": product,
-                        "order_type": order_type,
-                        "exchange": exchange,
-                        "target": target,
-                        "stop_loss": stop_loss,
-                        "status": "EXECUTED",
-                        "est_val": est_val,
-                        "brokerage": brokerage,
-                        "charges": charges,
-                        "net_amount": round(est_val + charges, 2),
-                        "validity": "DAY",
-                        "notes": f"TradeGorai Execution Engine (Zerodha: {err_msg2})"
-                    }
+                    logger.error(f"Zerodha API exception: {err_msg2}")
+                    raise ValueError(f"Zerodha API Rejected Order: {err_msg2}")
 
             est_val = price * qty
             brokerage = 0.0 if product == "CNC" else min(20.0, est_val * 0.0003)
@@ -502,7 +441,7 @@ class ZerodhaService:
                 "notes": f"Official Zerodha Order (ID: {real_id})"
             }
 
-        # SIMULATED FALLBACK MODE (Only if Zerodha account not linked or access token not set)
+        # PAPER TRADING / SIMULATED MODE (When Zerodha account is not connected)
         est_val = price * qty
         brokerage = 0.0 if product == "CNC" else min(20.0, est_val * 0.0003)
         stt = est_val * 0.001 if side == "SELL" else (est_val * 0.001 if product == "CNC" else 0.0)
@@ -512,7 +451,7 @@ class ZerodhaService:
         total_charges = round(brokerage + stt + etc + gst + sebi, 2)
         net_amount = round(est_val + total_charges if side == "BUY" else est_val - total_charges, 2)
 
-        order_id = f"TG-{random.randint(100000000000, 999999999999)}"
+        order_id = f"PAPER-{random.randint(100000, 999999)}"
         time_str = time.strftime("%H:%M:%S")
         status = "EXECUTED" if order_type == "MARKET" else "PENDING"
 
@@ -534,7 +473,7 @@ class ZerodhaService:
             "charges": total_charges,
             "net_amount": net_amount,
             "validity": order_data.get("validity", "DAY"),
-            "notes": "Zerodha Not Connected: Click 'Login with Zerodha Kite' in Settings to link official account"
+            "notes": "Paper Trading Order (Connect Zerodha in Settings to place Live Zerodha orders)"
         }
 
 zerodha_service = ZerodhaService()

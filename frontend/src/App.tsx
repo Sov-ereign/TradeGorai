@@ -15,40 +15,19 @@ import { MobileBottomNav, type MobileTab } from './components/MobileBottomNav';
 import type { Stock, Order, Position, PortfolioMetrics, ActivityItem, NotificationItem } from './types/trading';
 import { getWatchlists, getOrders, getPositions, getPortfolioSummary, saveZerodhaCredentials, getZerodhaStatus } from './services/api';
 import { wsClient } from './services/websocket';
-import { Key, Database, ShieldCheck, CheckCircle2, User, ExternalLink } from 'lucide-react';
+import { Key, ShieldCheck, ExternalLink } from 'lucide-react';
 
-export function App() {
+export default function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
   const [activeMobileTab, setActiveMobileTab] = useState<MobileTab>('watchlist');
   
-  // Data States initialized directly from localStorage for 100% Refresh Immunity
-  const [watchlist, setWatchlist] = useState<Stock[]>(() => {
-    try {
-      const saved = localStorage.getItem('tg_watchlist');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  // Clean Data States directly driven by REST API & Server Sockets
+  const [watchlist, setWatchlist] = useState<Stock[]>([]);
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
-  const [orders, setOrders] = useState<Order[]>(() => {
-    try {
-      const saved = localStorage.getItem('tg_orders');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [positions, setPositions] = useState<Position[]>(() => {
-    try {
-      const saved = localStorage.getItem('tg_positions');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
   const [portfolio, setPortfolio] = useState<PortfolioMetrics>({
     today_pnl: 0.00,
     today_pnl_percent: 0.00,
@@ -72,25 +51,6 @@ export function App() {
   const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
   const [wsConnected, setWsConnected] = useState<boolean>(false);
 
-  // Sync Data States to localStorage for 100% Refresh Immunity
-  useEffect(() => {
-    if (orders.length > 0) {
-      localStorage.setItem('tg_orders', JSON.stringify(orders));
-    }
-  }, [orders]);
-
-  useEffect(() => {
-    if (positions.length > 0) {
-      localStorage.setItem('tg_positions', JSON.stringify(positions));
-    }
-  }, [positions]);
-
-  useEffect(() => {
-    if (watchlist.length > 0) {
-      localStorage.setItem('tg_watchlist', JSON.stringify(watchlist));
-    }
-  }, [watchlist]);
-
   // Check URL parameters for OAuth Login Token
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -104,7 +64,7 @@ export function App() {
     }
   }, []);
 
-  // Initial Data Fetching & Session Restore
+  // Fetch Fresh Dashboard Data from REST Backend
   const loadDashboardData = async () => {
     try {
       const savedKey = localStorage.getItem('zerodha_api_key');
@@ -123,47 +83,17 @@ export function App() {
       ]);
 
       const flatWatchlist = groups.length > 0 ? groups[0].items : [];
-      if (flatWatchlist.length > 0) {
-        setWatchlist(flatWatchlist);
-        localStorage.setItem('tg_watchlist', JSON.stringify(flatWatchlist));
-        if (!selectedStock) {
-          setSelectedStock(flatWatchlist[0]);
-        }
+      setWatchlist(flatWatchlist);
+      if (flatWatchlist.length > 0 && !selectedStock) {
+        setSelectedStock(flatWatchlist[0]);
       }
 
-      // Seamlessly Merge Orders with localStorage
-      setOrders((prevOrders) => {
-        const merged = [...prevOrders];
-        const existingIds = new Set(prevOrders.map((o) => o.id));
-        for (const o of ordData) {
-          if (!existingIds.has(o.id)) {
-            merged.push(o);
-            existingIds.add(o.id);
-          }
-        }
-        localStorage.setItem('tg_orders', JSON.stringify(merged));
-        return merged;
-      });
-
-      // Seamlessly Merge Positions with localStorage
-      setPositions((prevPos) => {
-        const merged = [...prevPos];
-        const existingKeys = new Set(prevPos.map((p) => `${p.symbol}-${p.product}`));
-        for (const p of posData) {
-          const key = `${p.symbol}-${p.product}`;
-          if (!existingKeys.has(key)) {
-            merged.push(p);
-            existingKeys.add(key);
-          }
-        }
-        localStorage.setItem('tg_positions', JSON.stringify(merged));
-        return merged;
-      });
-
+      setOrders(ordData);
+      setPositions(posData);
       setPortfolio(portData);
       setZerodhaStatus(zStatus);
     } catch (err) {
-      console.error('Failed loading dashboard data:', err);
+      console.error('Failed loading dashboard data from backend API:', err);
     }
   };
 
@@ -216,7 +146,7 @@ export function App() {
         return prevSelected;
       });
 
-      // Update Open Positions P&Ls with ticks
+      // Update Open Positions P&Ls with live ticks
       setPositions((prevPos) =>
         prevPos.map((pos) => {
           if (pos.status === 'OPEN' && ticks[pos.symbol] && ticks[pos.symbol].ltp !== undefined) {
@@ -240,398 +170,302 @@ export function App() {
 
     return () => {
       unsubscribe();
+      wsClient.disconnect();
     };
   }, []);
 
-  // Global Keyboard Shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === '/') {
-        if (document.activeElement?.tagName !== 'INPUT') {
-          e.preventDefault();
-          const searchInput = document.querySelector('header input') as HTMLInputElement;
-          if (searchInput) searchInput.focus();
-        }
-      } else if (e.key === 'Escape') {
-        setShowShortcutsModal(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  const addNotification = (title: string, message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') => {
-    const id = `notif-${Date.now()}`;
+  const addNotification = (title: string, message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
     const newNotif: NotificationItem = {
-      id,
+      id: Date.now().toString(),
       title,
       message,
       type,
-      timestamp: new Date().toLocaleTimeString(),
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
     };
-    setNotifications((prev) => [newNotif, ...prev].slice(0, 5));
-
-    setTimeout(() => {
-      setNotifications((prev) => prev.filter((n) => n.id !== id));
-    }, 4000);
+    setNotifications((prev) => [newNotif, ...prev]);
   };
 
-  const addActivity = (message: string, type: ActivityItem['type'] = 'ORDER', status: ActivityItem['status'] = 'success') => {
-    const newAct: ActivityItem = {
-      id: `act-${Date.now()}`,
-      timestamp: new Date().toLocaleTimeString(),
+  const removeNotification = (id: string) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  };
+
+  const addActivity = (
+    message: string, 
+    type: 'ORDER' | 'TRADE' | 'BROKER' | 'ERROR' | 'SYSTEM' = 'SYSTEM', 
+    status: 'success' | 'info' | 'warning' | 'error' = 'info'
+  ) => {
+    const newActivity: ActivityItem = {
+      id: Date.now().toString(),
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       type,
       message,
       status,
     };
-    setActivities((prev) => [newAct, ...prev].slice(0, 50));
+    setActivities((prev) => [newActivity, ...prev]);
   };
 
-  const handleSelectStock = (stock: Stock) => {
-    setSelectedStock(stock);
-  };
-
-  const handleOrderPlaced = (msg: string) => {
-    addNotification('Order Processed', msg, msg.includes('🔴') ? 'error' : 'success');
-    addActivity(msg, 'ORDER', msg.includes('🔴') ? 'error' : 'success');
+  const handleOrderPlaced = (orderMsg: string) => {
+    addNotification('Order Execution', orderMsg, orderMsg.includes('🔴') ? 'error' : 'success');
+    addActivity(orderMsg, 'ORDER', orderMsg.includes('🔴') ? 'error' : 'success');
     loadDashboardData();
   };
 
-  const handlePositionsUpdated = (msg: string) => {
-    addNotification('Position Update', msg, 'info');
-    addActivity(msg, 'TRADE', 'info');
-    loadDashboardData();
-  };
-
-  const handleOrdersUpdated = (msg: string) => {
-    addNotification('Order Book Update', msg, 'info');
-    addActivity(msg, 'ORDER', 'info');
-    loadDashboardData();
-  };
-
-  const handleDuplicateOrder = (order: Order) => {
-    const match = watchlist.find((s) => s.symbol === order.symbol);
-    if (match) {
-      handleSelectStock(match);
-      addNotification('Order Pre-filled', `Selected ${order.symbol} for order entry`, 'info');
+  const handleSaveCredentials = async () => {
+    if (!apiKeyInput || !apiSecretInput) {
+      setSettingsMsg('⚠️ Please enter both API Key and API Secret.');
+      return;
     }
-  };
-
-  const handleSaveSettings = async () => {
     try {
-      localStorage.setItem('zerodha_api_key', apiKeyInput.trim());
-      localStorage.setItem('zerodha_api_secret', apiSecretInput.trim());
+      localStorage.setItem('zerodha_api_key', apiKeyInput);
+      localStorage.setItem('zerodha_api_secret', apiSecretInput);
       await saveZerodhaCredentials(apiKeyInput, apiSecretInput);
-      setSettingsMsg('✅ Zerodha API Credentials updated & saved locally!');
+      setSettingsMsg('🟢 Zerodha credentials saved successfully!');
+      addNotification('Settings Saved', 'Zerodha API Key and Secret updated', 'success');
       loadDashboardData();
     } catch (err: any) {
-      setSettingsMsg(`Error updating credentials: ${err.message}`);
+      setSettingsMsg(`🔴 Save failed: ${err.message || 'Error connecting to Zerodha'}`);
     }
+  };
+
+  const handleZerodhaOAuthLogin = () => {
+    const apiKey = apiKeyInput || localStorage.getItem('zerodha_api_key');
+    if (!apiKey) {
+      setSettingsMsg('⚠️ Please enter your Zerodha API Key first.');
+      return;
+    }
+    const backendUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+    window.location.href = `${backendUrl}/api/zerodha/login-url?api_key=${apiKey}`;
   };
 
   const openPositionsCount = positions.filter((p) => p.status === 'OPEN').length;
   const pendingOrdersCount = orders.filter((o) => o.status === 'PENDING').length;
 
   return (
-    <div className="flex h-screen bg-[#0B0E14] text-slate-100 font-sans overflow-hidden">
-      {/* Sidebar Navigation (Desktop & Mobile Drawer) */}
-      <Sidebar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        collapsed={sidebarCollapsed}
-        setCollapsed={setSidebarCollapsed}
-        mobileOpen={mobileSidebarOpen}
-        setMobileOpen={setMobileSidebarOpen}
-      />
+    <div className="flex h-screen bg-[#0B0E14] text-slate-100 font-sans antialiased overflow-hidden">
+      {/* Keyboard Shortcuts Modal */}
+      <KeyboardShortcutsModal isOpen={showShortcutsModal} onClose={() => setShowShortcutsModal(false)} />
 
-      {/* Main Workspace */}
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto pb-16 lg:pb-0">
-        {/* Top Navbar */}
+      {/* Toast Notifications */}
+      <NotificationToast notifications={notifications} onDismiss={removeNotification} />
+
+      {/* Desktop Sidebar */}
+      <div className="hidden md:block">
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          collapsed={sidebarCollapsed}
+          setCollapsed={setSidebarCollapsed}
+          mobileOpen={mobileSidebarOpen}
+          setMobileOpen={setMobileSidebarOpen}
+        />
+      </div>
+
+      {/* Main Workspace Area */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Top Header Nav */}
         <TopNav
-          onSelectStock={handleSelectStock}
+          onSelectStock={setSelectedStock}
           openKeyboardModal={() => setShowShortcutsModal(true)}
           wsConnected={wsConnected}
-          onToggleMobileSidebar={() => setMobileSidebarOpen(true)}
+          onToggleMobileSidebar={() => setMobileSidebarOpen(!mobileSidebarOpen)}
         />
 
-        {/* Main Content Area */}
-        <main className="flex-1 p-3 sm:p-4 overflow-y-auto">
+        {/* Dynamic Tab Body */}
+        <main className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-4 pb-20 md:pb-4">
+          {/* Main Dashboard Layout */}
+          {activeTab === 'dashboard' && (
+            <>
+              {/* Portfolio Balance & Profit Banner */}
+              <PortfolioCard portfolio={portfolio} />
 
-          {/* DESKTOP LAYOUT VIEWS (lg:flex) */}
-          <div className="hidden lg:block h-[calc(100vh-100px)] min-h-[680px]">
-            {/* Dashboard View (Multi-grid layout) */}
-            {activeTab === 'dashboard' && (
-              <div className="flex flex-col gap-4 h-full">
-                <PortfolioCard portfolio={portfolio} />
-                <div className="grid grid-cols-12 gap-4 flex-1">
-                  <div className="col-span-4 h-full">
-                    <WatchlistPanel
-                      watchlist={watchlist}
-                      selectedStock={selectedStock}
-                      onSelectStock={handleSelectStock}
-                      onWatchlistUpdated={loadDashboardData}
-                    />
-                  </div>
-                  <div className="col-span-4 flex flex-col gap-4 h-full">
-                    <div className="flex-1 min-h-[420px]">
-                      <OrderEntryPanel
-                        selectedStock={selectedStock}
-                        onOrderPlaced={handleOrderPlaced}
-                      />
-                    </div>
-                    <div className="h-44">
-                      <ActivityFeed activities={activities} />
-                    </div>
-                  </div>
-                  <div className="col-span-4 flex flex-col gap-4 h-full">
-                    <div className="flex-1 min-h-[280px]">
-                      <PositionsPanel
-                        positions={positions}
-                        onPositionsUpdated={handlePositionsUpdated}
-                      />
-                    </div>
-                    <div className="flex-1 min-h-[280px]">
-                      <OrdersPanel
-                        orders={orders}
-                        onOrdersUpdated={handleOrdersUpdated}
-                        onDuplicateOrder={handleDuplicateOrder}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Strategy Algo Studio Page */}
-            {activeTab === 'strategy' && (
-              <div className="h-full">
-                <StrategyStudio />
-              </div>
-            )}
-
-            {/* Watchlist Full Page */}
-            {activeTab === 'watchlist' && (
-              <div className="h-full max-w-4xl mx-auto">
-                <WatchlistPanel
-                  watchlist={watchlist}
-                  selectedStock={selectedStock}
-                  onSelectStock={handleSelectStock}
-                  onWatchlistUpdated={loadDashboardData}
-                />
-              </div>
-            )}
-
-            {/* Orders Book Full Page */}
-            {activeTab === 'orders' && (
-              <div className="h-full">
-                <OrdersPanel
-                  orders={orders}
-                  onOrdersUpdated={handleOrdersUpdated}
-                  onDuplicateOrder={handleDuplicateOrder}
-                />
-              </div>
-            )}
-
-            {/* Positions Full Page with Portfolio Card */}
-            {activeTab === 'positions' && (
-              <div className="flex flex-col gap-4 h-full">
-                <PortfolioCard portfolio={portfolio} />
-                <div className="flex-1">
-                  <PositionsPanel
-                    positions={positions}
-                    onPositionsUpdated={handlePositionsUpdated}
+              {/* Core 3-Column Trading Terminal */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-auto lg:h-[580px]">
+                {/* Watchlist Panel (Left Column - 4 Cols) */}
+                <div className="lg:col-span-4 h-[450px] lg:h-full">
+                  <WatchlistPanel
+                    watchlist={watchlist}
+                    selectedStock={selectedStock}
+                    onSelectStock={setSelectedStock}
+                    onWatchlistUpdated={loadDashboardData}
                   />
                 </div>
-              </div>
-            )}
 
-            {/* Holdings Full Page */}
-            {activeTab === 'holdings' && (
-              <div className="bg-[#121721] border border-[#1E2638] rounded-xl p-6 h-full">
-                <h2 className="text-base font-bold text-slate-100 mb-4">Portfolio Holdings (CNC Long-term Assets)</h2>
-                <div className="grid grid-cols-3 gap-4 mb-6">
-                  <div className="bg-[#0D111A] border border-[#1E2638] p-4 rounded-xl">
-                    <span className="text-xs text-slate-400 block mb-1">Total Book Value</span>
-                    <span className="text-lg font-bold font-mono text-slate-100">₹{(portfolio.total_investment ?? 0).toFixed(2)}</span>
+                {/* Order Execution Panel (Middle Column - 4 Cols) */}
+                <div className="lg:col-span-4 h-auto lg:h-full">
+                  <OrderEntryPanel
+                    selectedStock={selectedStock}
+                    onOrderPlaced={handleOrderPlaced}
+                  />
+                </div>
+
+                {/* Open Positions & Active Orders Tabs (Right Column - 4 Cols) */}
+                <div className="lg:col-span-4 h-[500px] lg:h-full flex flex-col gap-4">
+                  <div className="flex-1 min-h-0">
+                    <PositionsPanel positions={positions} onPositionsUpdated={loadDashboardData} />
                   </div>
-                  <div className="bg-[#0D111A] border border-[#1E2638] p-4 rounded-xl">
-                    <span className="text-xs text-slate-400 block mb-1">Current Value</span>
-                    <span className="text-lg font-bold font-mono text-emerald-400">₹{((portfolio.total_investment ?? 0) + (portfolio.overall_pnl ?? 0)).toFixed(2)}</span>
-                  </div>
-                  <div className="bg-[#0D111A] border border-[#1E2638] p-4 rounded-xl">
-                    <span className="text-xs text-slate-400 block mb-1">Total Holdings Return</span>
-                    <span className="text-lg font-bold font-mono text-emerald-400">+₹{(portfolio.overall_pnl ?? 0).toFixed(2)} ({(portfolio.overall_pnl_percent ?? 0).toFixed(2)}%)</span>
+                  <div className="flex-1 min-h-0">
+                    <OrdersPanel
+                      orders={orders}
+                      onOrdersUpdated={loadDashboardData}
+                      onDuplicateOrder={(ord) => setSelectedStock({ symbol: ord.symbol, name: ord.symbol, ltp: ord.price, change: 0, high: ord.price, low: ord.price, starred: false })}
+                    />
                   </div>
                 </div>
-                <div className="p-8 text-center text-xs text-slate-400 border border-dashed border-[#1E2638] rounded-xl">
-                  Executing CNC equity orders directly accumulates long-term holdings in your Zerodha Demat account.
+              </div>
+
+              {/* Bottom Activity & Execution Logs */}
+              <ActivityFeed activities={activities} />
+            </>
+          )}
+
+          {/* Dedicated Full Page Views */}
+          {activeTab === 'watchlist' && (
+            <div className="h-[calc(100vh-140px)]">
+              <WatchlistPanel
+                watchlist={watchlist}
+                selectedStock={selectedStock}
+                onSelectStock={setSelectedStock}
+                onWatchlistUpdated={loadDashboardData}
+              />
+            </div>
+          )}
+
+          {activeTab === 'orders' && (
+            <div className="h-[calc(100vh-140px)]">
+              <OrdersPanel
+                orders={orders}
+                onOrdersUpdated={loadDashboardData}
+                onDuplicateOrder={(ord) => setSelectedStock({ symbol: ord.symbol, name: ord.symbol, ltp: ord.price, change: 0, high: ord.price, low: ord.price, starred: false })}
+              />
+            </div>
+          )}
+
+          {activeTab === 'positions' && (
+            <div className="h-[calc(100vh-140px)]">
+              <PositionsPanel positions={positions} onPositionsUpdated={loadDashboardData} />
+            </div>
+          )}
+
+          {activeTab === 'strategy' && <StrategyStudio />}
+
+          {/* Holdings Full Page */}
+          {activeTab === 'holdings' && (
+            <div className="bg-[#121721] border border-[#1E2638] rounded-xl p-6 h-full">
+              <h2 className="text-base font-bold text-slate-100 mb-4">Portfolio Holdings (CNC Long-term Assets)</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                <div className="bg-[#0D111A] border border-[#1E2638] p-4 rounded-xl">
+                  <span className="text-xs text-slate-400 block mb-1">Total Book Value</span>
+                  <span className="text-lg font-bold font-mono text-slate-100">₹{(portfolio.total_investment ?? 0).toFixed(2)}</span>
+                </div>
+                <div className="bg-[#0D111A] border border-[#1E2638] p-4 rounded-xl">
+                  <span className="text-xs text-slate-400 block mb-1">Current Value</span>
+                  <span className="text-lg font-bold font-mono text-emerald-400">₹{((portfolio.total_investment ?? 0) + (portfolio.overall_pnl ?? 0)).toFixed(2)}</span>
+                </div>
+                <div className="bg-[#0D111A] border border-[#1E2638] p-4 rounded-xl">
+                  <span className="text-xs text-slate-400 block mb-1">Total Holdings Return</span>
+                  <span className="text-lg font-bold font-mono text-emerald-400">+₹{(portfolio.overall_pnl ?? 0).toFixed(2)} ({(portfolio.overall_pnl_percent ?? 0).toFixed(2)}%)</span>
                 </div>
               </div>
-            )}
+              <div className="p-8 text-center text-xs text-slate-400 border border-dashed border-[#1E2638] rounded-xl">
+                Executing CNC equity orders directly accumulates long-term holdings in your Zerodha Demat account.
+              </div>
+            </div>
+          )}
 
-            {/* Settings Full Page */}
-            {activeTab === 'settings' && (
-              <div className="bg-[#121721] border border-[#1E2638] rounded-xl p-6 max-w-2xl mx-auto space-y-6">
-                <h2 className="text-base font-bold text-slate-100 border-b border-[#1E2638] pb-3 flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-[#387ED1]" />
-                  TradeGorai Terminal Settings
-                </h2>
+          {/* Settings & Zerodha Integration Center */}
+          {activeTab === 'settings' && (
+            <div className="max-w-4xl mx-auto space-y-6">
+              <div className="bg-[#121721] border border-[#1E2638] rounded-2xl p-6 shadow-xl">
+                <div className="flex items-center justify-between pb-4 mb-6 border-b border-[#1E2638]">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 rounded-xl bg-[#387ED1]/10 text-[#387ED1]">
+                      <Key className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-slate-100">Zerodha Kite Connect Credentials</h2>
+                      <p className="text-xs text-slate-400">Configure your official Zerodha API Key & Secret for live trading & account sync.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs px-3 py-1 rounded-full font-bold flex items-center gap-1.5 ${
+                      zerodhaStatus.connected
+                        ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800'
+                        : 'bg-amber-950/80 text-amber-400 border border-amber-800'
+                    }`}>
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      {zerodhaStatus.connected ? `Connected (${zerodhaStatus.client_id})` : 'Paper Trading / Off-Market Mode'}
+                    </span>
+                  </div>
+                </div>
 
                 <div className="space-y-4">
-                  <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                    <Key className="w-4 h-4 text-[#387ED1]" />
-                    Zerodha Kite Connect Credentials
-                  </h3>
-                  
                   <div>
-                    <label className="text-xs font-semibold text-slate-400 block mb-1">API Key</label>
+                    <label className="text-xs font-semibold text-slate-300 block mb-1.5 uppercase tracking-wider">
+                      API Key
+                    </label>
                     <input
                       type="text"
-                      placeholder="Enter Kite API Key..."
+                      placeholder="e.g. 99x88y77z66a55b"
                       value={apiKeyInput}
                       onChange={(e) => setApiKeyInput(e.target.value)}
-                      className="w-full bg-[#0D111A] border border-[#1E2638] focus:border-[#387ED1] rounded-lg p-2.5 text-xs font-mono text-slate-100 outline-none"
+                      className="w-full bg-[#0D111A] border border-[#1E2638] focus:border-[#387ED1] rounded-xl p-3 text-xs text-slate-100 font-mono outline-none"
                     />
                   </div>
 
                   <div>
-                    <label className="text-xs font-semibold text-slate-400 block mb-1">API Secret</label>
+                    <label className="text-xs font-semibold text-slate-300 block mb-1.5 uppercase tracking-wider">
+                      API Secret
+                    </label>
                     <input
                       type="password"
-                      placeholder="Enter Kite API Secret..."
+                      placeholder="••••••••••••••••••••••••"
                       value={apiSecretInput}
                       onChange={(e) => setApiSecretInput(e.target.value)}
-                      className="w-full bg-[#0D111A] border border-[#1E2638] focus:border-[#387ED1] rounded-lg p-2.5 text-xs font-mono text-slate-100 outline-none"
+                      className="w-full bg-[#0D111A] border border-[#1E2638] focus:border-[#387ED1] rounded-xl p-3 text-xs text-slate-100 font-mono outline-none"
                     />
                   </div>
 
                   {settingsMsg && (
-                    <div className="p-3 rounded-lg bg-[#182030] border border-emerald-500/30 text-xs text-emerald-300 font-medium">
+                    <div className="p-3 rounded-xl bg-[#0D111A] border border-[#1E2638] text-xs font-semibold text-slate-200">
                       {settingsMsg}
                     </div>
                   )}
 
-                  <button
-                    onClick={handleSaveSettings}
-                    className="bg-[#387ED1] hover:bg-[#2C68B2] text-white font-bold py-2.5 px-6 rounded-lg text-xs transition-all shadow-md shadow-[#387ED1]/30"
-                  >
-                    Save API Settings
-                  </button>
-                </div>
+                  <div className="flex flex-wrap gap-3 pt-2">
+                    <button
+                      onClick={handleSaveCredentials}
+                      className="px-5 py-2.5 rounded-xl bg-[#387ED1] hover:bg-[#2C68B2] text-white font-bold text-xs shadow-lg transition-all"
+                    >
+                      Save Credentials
+                    </button>
 
-                <div className="pt-4 border-t border-[#1E2638] space-y-3">
-                  <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                    <Database className="w-4 h-4 text-blue-400" />
-                    Database & Storage Status
-                  </h3>
-                  <div className="p-3 bg-[#0D111A] border border-[#1E2638] rounded-xl text-xs flex justify-between items-center">
-                    <span className="text-slate-400">Database Engine:</span>
-                    <span className="font-semibold text-emerald-400 flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      MongoDB Atlas Active
-                    </span>
+                    <button
+                      onClick={handleZerodhaOAuthLogin}
+                      className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg transition-all flex items-center gap-1.5"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Login with Zerodha Kite (OAuth)
+                    </button>
                   </div>
                 </div>
               </div>
-            )}
-          </div>
-
-          {/* ZERODHA KITE MOBILE LAYOUT VIEWS (< 1024px) */}
-          <div className="lg:hidden h-[calc(100vh-170px)] min-h-[500px]">
-            {activeMobileTab === 'watchlist' && (
-              <WatchlistPanel
-                watchlist={watchlist}
-                selectedStock={selectedStock}
-                onSelectStock={handleSelectStock}
-                onWatchlistUpdated={loadDashboardData}
-              />
-            )}
-
-            {activeMobileTab === 'orders' && (
-              <OrdersPanel
-                orders={orders}
-                onOrdersUpdated={handleOrdersUpdated}
-                onDuplicateOrder={handleDuplicateOrder}
-              />
-            )}
-
-            {activeMobileTab === 'portfolio' && (
-              <div className="flex flex-col gap-3 h-full">
-                <PortfolioCard portfolio={portfolio} />
-                <div className="flex-1 overflow-hidden">
-                  <PositionsPanel
-                    positions={positions}
-                    onPositionsUpdated={handlePositionsUpdated}
-                  />
-                </div>
-              </div>
-            )}
-
-            {activeMobileTab === 'baskets' && (
-              <StrategyStudio />
-            )}
-
-            {activeMobileTab === 'profile' && (
-              <div className="bg-[#121721] border border-[#1E2638] rounded-xl p-5 space-y-5">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-[#387ED1] to-teal-500 flex items-center justify-center text-white font-bold text-lg">
-                    <User className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-100">{zerodhaStatus.user_name}</h3>
-                    <p className="text-xs text-slate-400 font-mono">{zerodhaStatus.client_id}</p>
-                  </div>
-                </div>
-
-                <div className="p-3.5 bg-[#0D111A] border border-[#1E2638] rounded-xl text-xs space-y-2">
-                  <div className="flex justify-between items-center py-1 border-b border-[#1E2638]">
-                    <span className="text-slate-400">Broker:</span>
-                    <span className="font-semibold text-slate-200">Zerodha Broking Ltd.</span>
-                  </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#1E2638]">
-                    <span className="text-slate-400">Status:</span>
-                    <span className={`font-semibold ${zerodhaStatus.connected ? 'text-emerald-400' : 'text-amber-400'}`}>
-                      {zerodhaStatus.connected ? '🟢 Zerodha Live Active' : '🟡 Disconnected / Sandbox'}
-                    </span>
-                  </div>
-                </div>
-
-                <a
-                  href={zerodhaStatus.login_url || `https://kite.zerodha.com/connect/login?v=3&api_key=${apiKeyInput || 'YOUR_KEY'}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full bg-[#387ED1] hover:bg-[#2C68B2] text-white font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#387ED1]/30"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  Login via Zerodha OAuth (Live Session)
-                </a>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </main>
+
+        {/* Mobile Bottom Navigation */}
+        <MobileBottomNav
+          activeMobileTab={activeMobileTab}
+          setActiveMobileTab={(tab: MobileTab) => {
+            setActiveMobileTab(tab);
+            if (tab === 'watchlist') setActiveTab('dashboard');
+            else if (tab === 'portfolio') setActiveTab('holdings');
+          }}
+          openPositionsCount={openPositionsCount}
+          pendingOrdersCount={pendingOrdersCount}
+        />
       </div>
-
-      {/* Mobile Bottom Navigation Bar */}
-      <MobileBottomNav
-        activeMobileTab={activeMobileTab}
-        setActiveMobileTab={setActiveMobileTab}
-        openPositionsCount={openPositionsCount}
-        pendingOrdersCount={pendingOrdersCount}
-      />
-
-      {/* Notification Toast Layer */}
-      <NotificationToast
-        notifications={notifications}
-        onDismiss={(id) => setNotifications((prev) => prev.filter((n) => n.id !== id))}
-      />
-
-      {/* Keyboard Shortcuts Modal */}
-      <KeyboardShortcutsModal
-        isOpen={showShortcutsModal}
-        onClose={() => setShowShortcutsModal(false)}
-      />
     </div>
   );
 }
-
-export default App;
