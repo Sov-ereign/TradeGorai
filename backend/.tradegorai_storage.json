@@ -1,0 +1,29 @@
+{
+  "watchlists": [
+    {
+      "id": "wl-1",
+      "name": "Watchlist 1",
+      "is_default": true,
+      "items": [
+        {"symbol": "RELIANCE", "name": "Reliance Industries Ltd", "ltp": 1334.80, "change": 0.74, "high": 1350.00, "low": 1320.00, "starred": true, "exchange": "NSE"},
+        {"symbol": "TATAMOTORS", "name": "Tata Motors Limited", "ltp": 1045.20, "change": 2.85, "high": 1060.00, "low": 1020.00, "starred": true, "exchange": "NSE"},
+        {"symbol": "TATAPOWER", "name": "Tata Power Co. Ltd", "ltp": 380.55, "change": 0.52, "high": 388.00, "low": 375.00, "starred": true, "exchange": "NSE"},
+        {"symbol": "TATASTEEL", "name": "Tata Steel Limited", "ltp": 187.55, "change": -0.92, "high": 190.00, "low": 185.00, "starred": true, "exchange": "NSE"}
+      ]
+    },
+    {
+      "id": "wl-2",
+      "name": "Watchlist 2",
+      "is_default": false,
+      "items": []
+    },
+    {
+      "id": "wl-3",
+      "name": "Watchlist 3 (F&O)",
+      "is_default": false,
+      "items": []
+    }
+  ],
+  "orders": [],
+  "positions": []
+}

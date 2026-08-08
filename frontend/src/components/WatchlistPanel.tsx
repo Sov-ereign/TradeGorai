@@ -43,8 +43,20 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
   onSelectStock,
   onWatchlistUpdated,
 }) => {
-  const [groups, setGroups] = useState<WatchlistGroup[]>([]);
-  const [activeGroupId, setActiveGroupId] = useState<string>('wl-1');
+  // Persistent Watchlist Groups & Active Group ID initialized directly from localStorage
+  const [groups, setGroups] = useState<WatchlistGroup[]>(() => {
+    try {
+      const saved = localStorage.getItem('tg_watchlist_groups');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [activeGroupId, setActiveGroupId] = useState<string>(() => {
+    return localStorage.getItem('tg_active_group_id') || 'wl-1';
+  });
+
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Stock[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -61,10 +73,22 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
 
+  // Persist Groups & Active Group ID to localStorage
+  useEffect(() => {
+    if (groups.length > 0) {
+      localStorage.setItem('tg_watchlist_groups', JSON.stringify(groups));
+    }
+  }, [groups]);
+
+  useEffect(() => {
+    localStorage.setItem('tg_active_group_id', activeGroupId);
+  }, [activeGroupId]);
+
   const loadGroups = async () => {
     try {
       const data = await getWatchlists();
       setGroups(data);
+      localStorage.setItem('tg_watchlist_groups', JSON.stringify(data));
       if (data.length > 0) {
         if (!data.some((g) => g.id === activeGroupId)) {
           setActiveGroupId(data[0].id);
@@ -95,12 +119,12 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
       } finally {
         setIsSearching(false);
       }
-    }, 200);
+    }, 50);
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
   const activeGroup = groups.find((g) => g.id === activeGroupId) || groups[0];
-  const currentStocks = activeGroup ? activeGroup.items : propWatchlist;
+  const currentStocks = activeGroup && activeGroup.items && activeGroup.items.length > 0 ? activeGroup.items : propWatchlist;
 
   const handleOpenOrderModal = (stock: Stock, side: OrderSide) => {
     setModalStock(stock);
@@ -286,7 +310,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
           )}
         </div>
 
-        {/* Search Results Dropdown */}
+        {/* Instant Search Results Dropdown */}
         {searchQuery && (
           <div className="absolute left-2.5 right-2.5 top-full mt-1 bg-[#121721] border border-[#1E2638] rounded-xl shadow-2xl overflow-hidden z-50 max-h-60 overflow-y-auto">
             {isSearching ? (

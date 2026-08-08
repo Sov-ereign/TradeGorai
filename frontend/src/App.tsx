@@ -23,11 +23,32 @@ export function App() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
   const [activeMobileTab, setActiveMobileTab] = useState<MobileTab>('watchlist');
   
-  // Data States
-  const [watchlist, setWatchlist] = useState<Stock[]>([]);
+  // Data States initialized directly from localStorage for 100% Refresh Immunity
+  const [watchlist, setWatchlist] = useState<Stock[]>(() => {
+    try {
+      const saved = localStorage.getItem('tg_watchlist');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [positions, setPositions] = useState<Position[]>([]);
+  const [orders, setOrders] = useState<Order[]>(() => {
+    try {
+      const saved = localStorage.getItem('tg_orders');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [positions, setPositions] = useState<Position[]>(() => {
+    try {
+      const saved = localStorage.getItem('tg_positions');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [portfolio, setPortfolio] = useState<PortfolioMetrics>({
     today_pnl: 0.00,
     today_pnl_percent: 0.00,
@@ -50,6 +71,25 @@ export function App() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
   const [wsConnected, setWsConnected] = useState<boolean>(false);
+
+  // Sync Data States to localStorage for 100% Refresh Immunity
+  useEffect(() => {
+    if (orders.length > 0) {
+      localStorage.setItem('tg_orders', JSON.stringify(orders));
+    }
+  }, [orders]);
+
+  useEffect(() => {
+    if (positions.length > 0) {
+      localStorage.setItem('tg_positions', JSON.stringify(positions));
+    }
+  }, [positions]);
+
+  useEffect(() => {
+    if (watchlist.length > 0) {
+      localStorage.setItem('tg_watchlist', JSON.stringify(watchlist));
+    }
+  }, [watchlist]);
 
   // Check URL parameters for OAuth Login Token
   useEffect(() => {
@@ -83,12 +123,43 @@ export function App() {
       ]);
 
       const flatWatchlist = groups.length > 0 ? groups[0].items : [];
-      setWatchlist(flatWatchlist);
-      if (flatWatchlist.length > 0 && !selectedStock) {
-        setSelectedStock(flatWatchlist[0]);
+      if (flatWatchlist.length > 0) {
+        setWatchlist(flatWatchlist);
+        localStorage.setItem('tg_watchlist', JSON.stringify(flatWatchlist));
+        if (!selectedStock) {
+          setSelectedStock(flatWatchlist[0]);
+        }
       }
-      setOrders(ordData);
-      setPositions(posData);
+
+      // Seamlessly Merge Orders with localStorage
+      setOrders((prevOrders) => {
+        const merged = [...prevOrders];
+        const existingIds = new Set(prevOrders.map((o) => o.id));
+        for (const o of ordData) {
+          if (!existingIds.has(o.id)) {
+            merged.push(o);
+            existingIds.add(o.id);
+          }
+        }
+        localStorage.setItem('tg_orders', JSON.stringify(merged));
+        return merged;
+      });
+
+      // Seamlessly Merge Positions with localStorage
+      setPositions((prevPos) => {
+        const merged = [...prevPos];
+        const existingKeys = new Set(prevPos.map((p) => `${p.symbol}-${p.product}`));
+        for (const p of posData) {
+          const key = `${p.symbol}-${p.product}`;
+          if (!existingKeys.has(key)) {
+            merged.push(p);
+            existingKeys.add(key);
+          }
+        }
+        localStorage.setItem('tg_positions', JSON.stringify(merged));
+        return merged;
+      });
+
       setPortfolio(portData);
       setZerodhaStatus(zStatus);
     } catch (err) {
