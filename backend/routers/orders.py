@@ -28,19 +28,20 @@ class OrderUpdateRequest(BaseModel):
 
 @router.get("", response_model=List[Dict[str, Any]])
 async def get_orders(status: Optional[str] = None):
+    all_orders = list(db_instance.memory_orders)
     try:
         live_ord = zerodha_service.get_live_orders()
-        if live_ord is not None:
-            if status:
-                return [o for o in live_ord if o.get("status", "").upper() == status.upper()]
-            return live_ord
+        if live_ord:
+            existing_ids = {o["id"] for o in all_orders}
+            for lo in live_ord:
+                if lo["id"] not in existing_ids:
+                    all_orders.append(lo)
     except Exception as e:
         print(f"Error fetching live orders: {e}")
 
-    orders = db_instance.memory_orders
     if status:
-        orders = [o for o in orders if o.get("status", "").upper() == status.upper()]
-    return orders
+        return [o for o in all_orders if o.get("status", "").upper() == status.upper()]
+    return all_orders
 
 @router.post("", response_model=Dict[str, Any])
 async def place_order(order_req: OrderCreateRequest):

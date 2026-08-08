@@ -7,19 +7,18 @@ router = APIRouter(prefix="/api/positions", tags=["Positions"])
 
 @router.get("", response_model=List[Dict[str, Any]])
 async def get_positions():
-    live_pos = zerodha_service.get_live_positions()
-    if live_pos is not None:
-        return live_pos
+    all_pos = list(db_instance.memory_positions)
+    try:
+        live_pos = zerodha_service.get_live_positions()
+        if live_pos:
+            existing_syms = {p["symbol"] for p in all_pos if p.get("status") == "OPEN"}
+            for lp in live_pos:
+                if lp["symbol"] not in existing_syms:
+                    all_pos.append(lp)
+    except Exception as e:
+        print(f"Error fetching live positions: {e}")
 
-    if db_instance.is_connected and db_instance.db is not None:
-        try:
-            cursor = db_instance.db.positions.find({}, {"_id": 0})
-            items = await cursor.to_list(length=100)
-            if items:
-                return items
-        except Exception:
-            pass
-    return db_instance.memory_positions
+    return all_pos
 
 @router.post("/exit/{symbol}")
 async def exit_position(symbol: str, product: str = "CNC"):

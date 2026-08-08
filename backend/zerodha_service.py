@@ -11,7 +11,7 @@ logger = logging.getLogger("tradegorai.zerodha")
 INSTRUMENTS_FILE = os.path.join(os.path.dirname(__file__), ".zerodha_instruments.json")
 SESSION_FILE = os.path.join(os.path.dirname(__file__), ".zerodha_session.json")
 
-# Ground-truth market prices for major NSE equities & indices
+# Ground-truth market prices for major NSE & BSE equities & indices
 REAL_PRICES_MAP = {
     "TATAMOTORS": {"name": "Tata Motors Limited", "ltp": 1045.20, "change": 2.85, "exchange": "NSE"},
     "TATAPOWER": {"name": "Tata Power Co. Ltd", "ltp": 425.80, "change": 1.75, "exchange": "NSE"},
@@ -119,7 +119,7 @@ class ZerodhaService:
         return data
 
     def load_instruments_catalog(self):
-        """Load Zerodha Live Instrument Dump (53,800+ symbols) prioritizing NSE & NFO"""
+        """Load Zerodha Live Instrument Dump (53,800+ symbols across NSE, BSE, NFO)"""
         if os.path.exists(INSTRUMENTS_FILE):
             try:
                 with open(INSTRUMENTS_FILE, "r") as f:
@@ -147,7 +147,6 @@ class ZerodhaService:
                     segment = row.get("segment", "")
                     raw_price = float(row.get("last_price", 0) or 0)
 
-                    # Lookup real price map first
                     if symbol in REAL_PRICES_MAP:
                         last_price = REAL_PRICES_MAP[symbol]["ltp"]
                         change_val = REAL_PRICES_MAP[symbol]["change"]
@@ -172,21 +171,14 @@ class ZerodhaService:
                             "starred": False
                         })
 
-                # Sort catalog to prioritize NSE & NFO over BSE
-                def cat_score(item):
-                    ex = item.get("exchange", "NSE")
-                    return 0 if ex == "NSE" else (1 if ex == "NFO" else 2)
-
-                catalog.sort(key=cat_score)
-
                 self.instruments_catalog = catalog
                 logger.info(f"Successfully loaded {len(self.instruments_catalog)} live instruments.")
                 with open(INSTRUMENTS_FILE, "w") as f:
-                    json.dump(catalog[:25000], f)
+                    json.dump(catalog, f)
         except Exception as e:
             logger.error(f"Error downloading live instruments catalog: {e}")
 
-    def search_instruments(self, query: str, limit: int = 25) -> List[Dict[str, Any]]:
+    def search_instruments(self, query: str, limit: int = 30) -> List[Dict[str, Any]]:
         if not query or not query.strip():
             return []
         
@@ -199,29 +191,21 @@ class ZerodhaService:
             if q in sym or q in name:
                 matches.append(item)
 
-        # Relevance & Exchange Priority Scoring: NSE -> NFO -> BSE
+        # Relevance scoring: exact match first, starts-with next, include BOTH NSE and BSE
         def score(item):
             sym = item["symbol"].upper()
             exch = item.get("exchange", "NSE").upper()
             
             is_exact = (sym == q)
             starts_with = sym.startswith(q)
-            exch_rank = 0 if exch == "NSE" else (1 if exch == "NFO" else 2)
+            exch_rank = 0 if exch == "NSE" else (1 if exch == "BSE" else 2)
             
-            if is_exact and exch == "NSE":
+            if is_exact:
                 return (0, exch_rank, len(sym))
-            elif is_exact:
-                return (1, exch_rank, len(sym))
-            elif starts_with and exch == "NSE":
-                return (2, exch_rank, len(sym))
-            elif starts_with and exch == "NFO":
-                return (3, exch_rank, len(sym))
             elif starts_with:
-                return (4, exch_rank, len(sym))
-            elif exch == "NSE":
-                return (5, exch_rank, len(sym))
+                return (1, exch_rank, len(sym))
             else:
-                return (6, exch_rank, len(sym))
+                return (2, exch_rank, len(sym))
 
         matches.sort(key=score)
 
@@ -229,7 +213,7 @@ class ZerodhaService:
         live_quotes = {}
         if not self.is_mock_mode and self.kite:
             try:
-                symbols_to_fetch = [f"{m['exchange']}:{m['symbol']}" for m in matches[:10]]
+                symbols_to_fetch = [f"{m['exchange']}:{m['symbol']}" for m in matches[:15]]
                 if symbols_to_fetch:
                     live_quotes = self.kite.ltp(symbols_to_fetch) or {}
             except Exception as e:
@@ -257,7 +241,7 @@ class ZerodhaService:
 
         return results
 
-    def search_catalog(self, query: str, limit: int = 25) -> List[Dict[str, Any]]:
+    def search_catalog(self, query: str, limit: int = 30) -> List[Dict[str, Any]]:
         """Alias for search_instruments"""
         return self.search_instruments(query, limit)
 
