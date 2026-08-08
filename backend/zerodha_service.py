@@ -101,26 +101,18 @@ class ZerodhaService:
             logger.error(f"Failed saving Zerodha session file: {e}")
 
     def _init_kite(self):
-        """
-        Initialise KiteConnect with the stored access token.
-        - is_mock_mode is set based solely on whether we have an access token.
-        - profile() is fetched for display purposes only (user name, client id).
-        - A failed profile() fetch does NOT change is_mock_mode — token validity
-          is checked lazily at order-placement time via TokenException handling.
-        """
         try:
             self.kite = KiteConnect(api_key=self.api_key)
             if self.access_token:
                 self.kite.set_access_token(self.access_token)
                 self.is_mock_mode = False
                 logger.info("KiteConnect initialised with stored access token. Live order routing ACTIVE.")
-                # Fetch profile for display only — failure does NOT affect routing
                 try:
                     profile = self.kite.profile()
                     self.user_profile = profile
                     logger.info(f"Zerodha profile loaded: {profile.get('user_name')} ({profile.get('user_id')})")
                 except Exception as profile_err:
-                    logger.warning(f"Could not fetch Zerodha profile (token may be stale): {profile_err}. Live routing still active.")
+                    logger.warning(f"Could not fetch Zerodha profile: {profile_err}. Live routing active.")
             else:
                 logger.info("No Zerodha access token found. Running in Paper Trading mode.")
         except Exception as e:
@@ -401,16 +393,10 @@ class ZerodhaService:
         if price <= 0:
             price = quote["ltp"]
 
-        # Zerodha does not accept any orders (regular or AMO) on weekends.
-        # Attempting the API on Saturday/Sunday will always result in a rejection,
-        # which would pollute the order book with Z-REJ- entries.
-        # Skip Zerodha entirely on weekends and fall through to Paper mode.
-        ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
-        is_weekday = datetime.datetime.now(tz=ist_offset).weekday() < 5  # Mon=0 … Fri=4
+        market_open = is_market_open_ist()
 
-        # DIRECT ZERODHA API ORDER PLACEMENT (weekdays only)
-        if not self.is_mock_mode and self.kite and self.access_token and is_weekday:
-            kite_order_type = self.kite.ORDER_TYPE_MARKET if order_type == "MARKET" else self.kite.ORDER_TYPE_LIMIT
+        # DIRECT ZERODHA API ORDER PLACEMENT (SUPPORTED 24/7 INCLUDING WEEKENDS & AFTER-HOURS VIA AMO)
+        if not self.is_mock_mode and self.kite and self.access_token:
             kite_transaction_type = self.kite.TRANSACTION_TYPE_BUY if side == "BUY" else self.kite.TRANSACTION_TYPE_SELL
             
             if exchange == "NFO":
@@ -425,61 +411,65 @@ class ZerodhaService:
             else:
                 kite_exchange = self.kite.EXCHANGE_NSE
 
-            kite_price = price if order_type == "LIMIT" else None
-
-            # Attempt 1: Regular Live Order Placement
             real_id = None
             is_amo_submitted = False
             token_failed = False
             rejection_reason = None
 
-            try:
-                logger.info(f"Submitting REGULAR order to Zerodha API for {symbol}...")
-                real_id = self.kite.place_order(
-                    variety=self.kite.VARIETY_REGULAR,
-                    exchange=kite_exchange,
-                    tradingsymbol=symbol,
-                    transaction_type=kite_transaction_type,
-                    quantity=qty,
-                    product=kite_product,
-                    order_type=kite_order_type,
-                    price=kite_price,
-                    validity=self.kite.VALIDITY_DAY
-                )
-                logger.info(f"LIVE REGULAR Zerodha Order Placed! Real Zerodha Order ID: {real_id}")
-            except Exception as e:
-                err_msg = str(e)
-                logger.warning(f"Regular Zerodha order note ({err_msg}). Retrying as ZERODHA AMO (After Market Order)...")
-                
-                if "token" in err_msg.lower() or "session" in err_msg.lower() or "invalid" in err_msg.lower():
-                    token_failed = True
+            # If market is open, try Regular order first
+            if market_open:
+                try:
+                    kite_order_type = self.kite.ORDER_TYPE_MARKET if order_type == "MARKET" else self.kite.ORDER_TYPE_LIMIT
+                    kite_price = price if order_type == "LIMIT" else None
+                    logger.info(f"Submitting REGULAR order to Zerodha API for {symbol}...")
+                    real_id = self.kite.place_order(
+                        variety=self.kite.VARIETY_REGULAR,
+                        exchange=kite_exchange,
+                        tradingsymbol=symbol,
+                        transaction_type=kite_transaction_type,
+                        quantity=qty,
+                        product=kite_product,
+                        order_type=kite_order_type,
+                        price=kite_price,
+                        validity=self.kite.VALIDITY_DAY
+                    )
+                    logger.info(f"LIVE REGULAR Zerodha Order Placed! Real Order ID: {real_id}")
+                except Exception as e:
+                    err_msg = str(e)
+                    logger.warning(f"Regular Zerodha order attempt note: {err_msg}")
+                    if "token" in err_msg.lower() or "session" in err_msg.lower() or "invalid" in err_msg.lower():
+                        token_failed = True
 
-                if not token_failed:
-                    # Attempt 2: Zerodha AMO Order (Zerodha requires LIMIT price for AMO orders)
-                    try:
-                        amo_order_type = self.kite.ORDER_TYPE_LIMIT if order_type == "MARKET" else kite_order_type
-                        amo_price = price if (order_type == "MARKET" or not kite_price) else kite_price
+            # If market is closed OR regular order fell through, submit as Zerodha AMO (After Market Order)
+            if not real_id and not token_failed:
+                try:
+                    # Zerodha AMO orders require LIMIT order type with exact price outside market hours
+                    amo_order_type = self.kite.ORDER_TYPE_LIMIT if order_type == "MARKET" else (
+                        self.kite.ORDER_TYPE_MARKET if order_type == "MARKET" else self.kite.ORDER_TYPE_LIMIT
+                    )
+                    amo_price = round(price if price > 0 else quote["ltp"], 2)
 
-                        real_id = self.kite.place_order(
-                            variety=self.kite.VARIETY_AMO,
-                            exchange=kite_exchange,
-                            tradingsymbol=symbol,
-                            transaction_type=kite_transaction_type,
-                            quantity=qty,
-                            product=kite_product,
-                            order_type=amo_order_type,
-                            price=amo_price,
-                            validity=self.kite.VALIDITY_DAY
-                        )
-                        is_amo_submitted = True
-                        logger.info(f"LIVE ZERODHA AMO ORDER PLACED! Real Zerodha Order ID: {real_id}")
-                    except Exception as e2:
-                        err_msg2 = str(e2)
-                        logger.error(f"Zerodha API exception: {err_msg2}")
-                        if "token" in err_msg2.lower() or "session" in err_msg2.lower() or "invalid" in err_msg2.lower():
-                            token_failed = True
-                        else:
-                            rejection_reason = err_msg2
+                    logger.info(f"Submitting Zerodha AMO order for {symbol} (variety=amo, price={amo_price})...")
+                    real_id = self.kite.place_order(
+                        variety=self.kite.VARIETY_AMO,
+                        exchange=kite_exchange,
+                        tradingsymbol=symbol,
+                        transaction_type=kite_transaction_type,
+                        quantity=qty,
+                        product=kite_product,
+                        order_type=self.kite.ORDER_TYPE_LIMIT, # Limit price required by Zerodha AMO
+                        price=amo_price,
+                        validity=self.kite.VALIDITY_DAY
+                    )
+                    is_amo_submitted = True
+                    logger.info(f"LIVE ZERODHA AMO ORDER PLACED SUCCESSFULLY! Real Zerodha Order ID: {real_id}")
+                except Exception as e2:
+                    err_msg2 = str(e2)
+                    logger.error(f"Zerodha AMO API exception: {err_msg2}")
+                    if "token" in err_msg2.lower() or "session" in err_msg2.lower() or "invalid" in err_msg2.lower():
+                        token_failed = True
+                    else:
+                        rejection_reason = err_msg2
 
             if token_failed:
                 logger.warning("Zerodha access token expired or invalid. Resetting to Paper Mode.")
@@ -547,21 +537,18 @@ class ZerodhaService:
 
         order_id = f"PAPER-{int(time.time() * 1000)}"
         time_str = time.strftime("%H:%M:%S")
-        # A MARKET order is only instantly EXECUTED if the market is actually open.
-        # Outside market hours (or on weekends) it stays PENDING — no position is created.
-        if order_type == "MARKET" and is_market_open_ist():
+        if order_type == "MARKET" and market_open:
             status = "EXECUTED"
         else:
-            status = "PENDING"
+            status = "AMO REQ" if not market_open else "PENDING"
 
-        # Context-aware note so the user knows exactly why this is a paper order
         ist_now = datetime.datetime.now(tz=datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
         if ist_now.weekday() >= 5:
-            note = "📅 Weekend — Zerodha does not accept orders on Saturday/Sunday. Order queued as Paper."
-        elif not is_market_open_ist():
-            note = "🕐 Market closed (09:15–15:30 IST, Mon–Fri). Order queued as Paper pending next session."
+            note = "📅 Weekend Paper Order (AMO REQ) — Queued for market open."
+        elif not market_open:
+            note = "🕐 Off-hours Paper Order (AMO REQ) — Queued for market open."
         elif self.is_mock_mode or not self.access_token:
-            note = "📄 Paper Trading — connect your Zerodha account in Settings to route live orders."
+            note = "📄 Paper Trading Order — connect Zerodha account in Settings for live execution."
         else:
             note = "📄 Paper Trading Order"
 
