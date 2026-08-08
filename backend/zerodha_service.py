@@ -2,10 +2,21 @@ import os
 import json
 import time
 import logging
+import datetime
 from typing import Optional, Dict, Any, List
 from kiteconnect import KiteConnect
 
 logger = logging.getLogger("tradegorai.zerodha")
+
+def is_market_open_ist() -> bool:
+    """Return True only during NSE/BSE trading hours: Mon-Fri 09:15–15:30 IST."""
+    ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    now = datetime.datetime.now(tz=ist_offset)
+    if now.weekday() >= 5:  # Saturday=5, Sunday=6
+        return False
+    market_open  = now.replace(hour=9,  minute=15, second=0, microsecond=0)
+    market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    return market_open <= now <= market_close
 
 INSTRUMENTS_FILE = os.path.join(os.path.dirname(__file__), ".zerodha_instruments.json")
 SESSION_FILE = os.path.join(os.path.dirname(__file__), ".zerodha_session.json")
@@ -90,18 +101,23 @@ class ZerodhaService:
             logger.error(f"Failed saving Zerodha session file: {e}")
 
     def _init_kite(self):
+        """
+        Initialise KiteConnect and trust the stored access token.
+        We do NOT call profile() here because:
+          - Zerodha tokens expire at 06:00 IST daily.
+          - A failed profile() on startup would silently flip is_mock_mode=True
+            and route every order to Paper Mode, which is the wrong behaviour.
+          - Token validity is determined lazily: if an order API call returns
+            a TokenException we fall back to Paper Mode at that point.
+        """
         try:
             self.kite = KiteConnect(api_key=self.api_key)
             if self.access_token:
                 self.kite.set_access_token(self.access_token)
                 self.is_mock_mode = False
-                try:
-                    profile = self.kite.profile()
-                    self.user_profile = profile
-                    logger.info(f"Authenticated with Zerodha Live API as {profile.get('user_name')}")
-                except Exception as e:
-                    logger.warning(f"Zerodha profile check info: {e}. Session expired or invalid.")
-                    self.is_mock_mode = True
+                logger.info("KiteConnect initialised with stored access token. Live order routing ACTIVE.")
+            else:
+                logger.info("No Zerodha access token found. Running in Paper Trading mode.")
         except Exception as e:
             logger.error(f"KiteConnect initialization error: {e}")
             self.is_mock_mode = True
@@ -519,7 +535,12 @@ class ZerodhaService:
 
         order_id = f"PAPER-{int(time.time() * 1000)}"
         time_str = time.strftime("%H:%M:%S")
-        status = "EXECUTED" if order_type == "MARKET" else "PENDING"
+        # A MARKET order is only instantly EXECUTED if the market is actually open.
+        # Outside market hours it sits as PENDING — no position must be created.
+        if order_type == "MARKET" and is_market_open_ist():
+            status = "EXECUTED"
+        else:
+            status = "PENDING"
 
         return {
             "id": order_id,
