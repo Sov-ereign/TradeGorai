@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, LogOut } from 'lucide-react';
+import { Layers, LogOut, Lock } from 'lucide-react';
 import type { Position } from '../types/trading';
 import { exitPosition, squareOffAllPositions } from '../services/api';
 
@@ -80,7 +80,7 @@ export const PositionsPanel: React.FC<PositionsPanelProps> = ({
               <th>Avg Price</th>
               <th>LTP</th>
               <th>P&L</th>
-              <th>Unrealized P&L</th>
+              <th>Hidden Triggers (Target / SL)</th>
               <th>Status</th>
               <th className="text-right">Action</th>
             </tr>
@@ -89,13 +89,14 @@ export const PositionsPanel: React.FC<PositionsPanelProps> = ({
             {positions.length === 0 ? (
               <tr>
                 <td colSpan={9} className="text-center p-8 text-slate-500 text-xs">
-                  No positions found. Execute orders to build open positions.
+                  No open positions. Execute orders with hidden Target/SL to manage trades.
                 </td>
               </tr>
             ) : (
               positions.map((pos, idx) => {
                 const isProfit = pos.pnl >= 0;
                 const isOpen = pos.status === 'OPEN';
+                const posAny = pos as any;
 
                 return (
                   <tr key={`${pos.symbol}-${pos.product}-${idx}`} className={isOpen ? '' : 'opacity-60 bg-[#0B0E14]'}>
@@ -122,8 +123,25 @@ export const PositionsPanel: React.FC<PositionsPanelProps> = ({
                         ({isProfit ? '+' : ''}{pos.pnl_percent.toFixed(2)}%)
                       </span>
                     </td>
-                    <td className={`font-mono font-semibold ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {isProfit ? '+' : ''}₹{pos.unrealized_pnl.toFixed(2)}
+                    <td>
+                      <div className="flex items-center gap-1.5">
+                        {posAny.target ? (
+                          <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 px-1.5 py-0.5 rounded flex items-center gap-1">
+                            <Lock className="w-2.5 h-2.5" />
+                            T: ₹{posAny.target}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-600">T: --</span>
+                        )}
+                        {posAny.stop_loss ? (
+                          <span className="text-[10px] font-mono font-bold text-rose-400 bg-rose-950/40 border border-rose-800/40 px-1.5 py-0.5 rounded flex items-center gap-1">
+                            <Lock className="w-2.5 h-2.5" />
+                            SL: ₹{posAny.stop_loss}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-600">SL: --</span>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <span

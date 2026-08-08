@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, ArrowUpRight, ArrowDownRight, Zap } from 'lucide-react';
+import { X, ArrowUpRight, ArrowDownRight, Zap, Shield, Lock } from 'lucide-react';
 import type { Stock, ProductType, OrderType, OrderSide } from '../types/trading';
 import { placeOrder } from '../services/api';
 
@@ -23,6 +23,10 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
   const [orderType, setOrderType] = useState<OrderType>('MARKET');
   const [qty, setQty] = useState<number>(1);
   const [limitPrice, setLimitPrice] = useState<number>(stock.ltp);
+  
+  // Virtual / Hidden Target & Stop Loss inputs
+  const [targetPrice, setTargetPrice] = useState<string>('');
+  const [stopLossPrice, setStopLossPrice] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   if (!isOpen) return null;
@@ -41,9 +45,16 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
         product,
         order_type: orderType,
         price: effectivePrice,
+        target: targetPrice ? parseFloat(targetPrice) : undefined,
+        stop_loss: stopLossPrice ? parseFloat(stopLossPrice) : undefined,
         validity: 'DAY',
       });
-      onOrderPlaced(`🟢 Order placed: ${side} ${qty} qty of ${stock.symbol} @ ₹${effectivePrice}`);
+      
+      const hiddenMsg = (targetPrice || stopLossPrice) 
+        ? ' (🔒 Target/SL kept HIDDEN from Zerodha until LTP triggers)'
+        : '';
+
+      onOrderPlaced(`🟢 Order placed: ${side} ${qty} qty of ${stock.symbol} @ ₹${effectivePrice}${hiddenMsg}`);
       onClose();
     } catch (err: any) {
       onOrderPlaced(`🔴 Order error: ${err.message || 'Placement failed'}`);
@@ -109,7 +120,7 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
         </div>
 
         {/* Main Form Fields */}
-        <div className="p-4 space-y-4">
+        <div className="p-4 space-y-3.5 max-h-[75vh] overflow-y-auto">
           {/* Product Type Pills (CNC vs MIS) */}
           <div>
             <label className="text-[11px] font-semibold text-slate-400 block mb-1.5 uppercase tracking-wider">
@@ -176,7 +187,7 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-[11px] font-semibold text-slate-400 block mb-1">Quantity</label>
-              <div className="flex items-center bg-[#0D111A] border border-[#1E2638] rounded-lg overflow-hidden focus-within:border-emerald-500">
+              <div className="flex items-center bg-[#0D111A] border border-[#1E2638] rounded-lg overflow-hidden focus-within:border-[#387ED1]">
                 <button
                   type="button"
                   onClick={() => setQty(Math.max(1, qty - 1))}
@@ -210,10 +221,58 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
                 value={orderType === 'MARKET' ? stock.ltp : limitPrice}
                 onChange={(e) => setLimitPrice(parseFloat(e.target.value) || stock.ltp)}
                 className={`w-full bg-[#0D111A] border border-[#1E2638] rounded-lg px-3 py-2 text-xs font-bold font-mono text-slate-100 outline-none ${
-                  orderType === 'MARKET' ? 'opacity-50 cursor-not-allowed' : 'focus:border-emerald-500'
+                  orderType === 'MARKET' ? 'opacity-50 cursor-not-allowed' : 'focus:border-[#387ED1]'
                 }`}
               />
             </div>
+          </div>
+
+          {/* HIDDEN TARGET & STOP LOSS SECTION */}
+          <div className="pt-2 border-t border-[#1E2638]">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-emerald-400" />
+                Virtual / Hidden Triggers
+              </span>
+              <span className="text-[10px] text-emerald-400 font-semibold bg-emerald-950/40 border border-emerald-800/40 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <Shield className="w-3 h-3" />
+                Zerodha Protected
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-semibold text-slate-400 block mb-1">
+                  Hidden Target (₹)
+                </label>
+                <input
+                  type="number"
+                  step="0.05"
+                  placeholder="e.g. 3100.00"
+                  value={targetPrice}
+                  onChange={(e) => setTargetPrice(e.target.value)}
+                  className="w-full bg-[#0D111A] border border-[#1E2638] focus:border-emerald-500 rounded-lg px-3 py-2 text-xs font-mono text-emerald-400 font-bold outline-none placeholder-slate-600"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-400 block mb-1">
+                  Hidden Stop Loss (₹)
+                </label>
+                <input
+                  type="number"
+                  step="0.05"
+                  placeholder="e.g. 2900.00"
+                  value={stopLossPrice}
+                  onChange={(e) => setStopLossPrice(e.target.value)}
+                  className="w-full bg-[#0D111A] border border-[#1E2638] focus:border-rose-500 rounded-lg px-3 py-2 text-xs font-mono text-rose-400 font-bold outline-none placeholder-slate-600"
+                />
+              </div>
+            </div>
+
+            <p className="text-[10px] text-slate-500 mt-1.5 italic">
+              🔒 Target & SL remain hidden locally inside TradeGorai. Zerodha is notified ONLY when LTP reaches trigger level!
+            </p>
           </div>
 
           {/* Estimated Margin & Total Amount Banner */}

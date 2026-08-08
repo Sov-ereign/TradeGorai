@@ -43,10 +43,14 @@ async def place_order(order_req: OrderCreateRequest):
     order_dict = order_req.model_dump()
     placed_order = zerodha_service.place_order(order_dict)
 
+    # Attach virtual target & stop_loss fields
+    placed_order["target"] = order_dict.get("target")
+    placed_order["stop_loss"] = order_dict.get("stop_loss")
+
     # Save order to memory
     db_instance.memory_orders.insert(0, placed_order)
 
-    # If executed, auto-create position
+    # If executed, auto-create position with virtual triggers
     if placed_order["status"] == "EXECUTED":
         _update_position_from_executed_order(placed_order)
 
@@ -102,6 +106,8 @@ def _update_position_from_executed_order(order: Dict[str, Any]):
     qty = order["qty"]
     price = order["price"] if order["price"] > 0 else 1000.0
     product = order["product"]
+    target = order.get("target")
+    stop_loss = order.get("stop_loss")
 
     existing_pos = None
     for pos in db_instance.memory_positions:
@@ -115,6 +121,10 @@ def _update_position_from_executed_order(order: Dict[str, Any]):
             avg_price = ((existing_pos["qty"] * existing_pos["avg_price"]) + (qty * price)) / total_qty
             existing_pos["qty"] = total_qty
             existing_pos["avg_price"] = round(avg_price, 2)
+            if target:
+                existing_pos["target"] = target
+            if stop_loss:
+                existing_pos["stop_loss"] = stop_loss
         else: # SELL
             new_qty = existing_pos["qty"] - qty
             if new_qty <= 0:
@@ -130,6 +140,8 @@ def _update_position_from_executed_order(order: Dict[str, Any]):
                 "qty": qty,
                 "avg_price": price,
                 "current_price": price,
+                "target": target,
+                "stop_loss": stop_loss,
                 "pnl": 0.0,
                 "pnl_percent": 0.0,
                 "unrealized_pnl": 0.0,
