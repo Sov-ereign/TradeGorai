@@ -36,13 +36,13 @@ DEFAULT_FO_INSTRUMENTS = [
 ]
 
 DEFAULT_BLUECHIP_INSTRUMENTS = [
-    {"symbol": "RELIANCE", "name": "Reliance Industries Ltd", "ltp": 2980.50, "change": 1.45, "high": 3012.00, "low": 2940.10, "starred": True, "exchange": "NSE"},
+    {"symbol": "RELIANCE", "name": "Reliance Industries Ltd", "ltp": 1334.80, "change": 0.74, "high": 1350.00, "low": 1320.00, "starred": True, "exchange": "NSE"},
     {"symbol": "TATAMOTORS", "name": "Tata Motors Limited", "ltp": 1045.20, "change": 2.85, "high": 1060.00, "low": 1020.00, "starred": True, "exchange": "NSE"},
-    {"symbol": "INFY", "name": "Infosys Limited", "ltp": 1820.75, "change": -0.65, "high": 1845.00, "low": 1805.50, "starred": False, "exchange": "NSE"},
-    {"symbol": "HDFCBANK", "name": "HDFC Bank Limited", "ltp": 1640.30, "change": 0.90, "high": 1658.00, "low": 1622.00, "starred": False, "exchange": "NSE"},
-    {"symbol": "TCS", "name": "Tata Consultancy Services", "ltp": 4250.00, "change": -1.20, "high": 4310.00, "low": 4210.00, "starred": False, "exchange": "NSE"},
-    {"symbol": "ICICIBANK", "name": "ICICI Bank Limited", "ltp": 1210.40, "change": 1.10, "high": 1225.00, "low": 1195.00, "starred": False, "exchange": "NSE"},
-    {"symbol": "SBIN", "name": "State Bank of India", "ltp": 845.60, "change": 0.45, "high": 855.00, "low": 838.00, "starred": False, "exchange": "NSE"}
+    {"symbol": "TATAPOWER", "name": "Tata Power Co. Ltd", "ltp": 380.55, "change": 0.52, "high": 388.00, "low": 375.00, "starred": True, "exchange": "NSE"},
+    {"symbol": "INFY", "name": "Infosys Limited", "ltp": 1175.10, "change": 0.87, "high": 1190.00, "low": 1160.00, "starred": False, "exchange": "NSE"},
+    {"symbol": "HDFCBANK", "name": "HDFC Bank Limited", "ltp": 731.00, "change": -0.45, "high": 745.00, "low": 720.00, "starred": False, "exchange": "NSE"},
+    {"symbol": "TCS", "name": "Tata Consultancy Services", "ltp": 4250.00, "change": -0.80, "high": 4310.00, "low": 4210.00, "starred": False, "exchange": "NSE"},
+    {"symbol": "SBIN", "name": "State Bank of India", "ltp": 1097.20, "change": 1.12, "high": 1110.00, "low": 1080.00, "starred": False, "exchange": "NSE"}
 ]
 
 @router.get("", response_model=List[Dict[str, Any]])
@@ -85,12 +85,10 @@ async def get_watchlists():
                     "exchange": "NSE"
                 })
 
-    # Get custom added items from memory for each group ID
     def get_group_items(gid: str, fallback_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         for g in watchlists:
-            if g["id"] == gid and g.get("items"):
-                # Merge custom items with fallback/synced items without duplicates
-                merged = list(g["items"])
+            if g["id"] == gid:
+                merged = list(g.get("items", []))
                 existing = {s["symbol"] for s in merged}
                 for f in fallback_items:
                     if f["symbol"] not in existing:
@@ -162,6 +160,7 @@ async def create_watchlist_group(req: CreateGroupRequest):
         "items": []
     }
     db_instance.memory_watchlists.append(new_group)
+    db_instance.save_storage_to_disk()
     return {"message": f"Watchlist '{req.name}' created", "group": new_group}
 
 @router.put("/group/{group_id}/rename", response_model=Dict[str, Any])
@@ -169,12 +168,14 @@ async def rename_watchlist_group(group_id: str, req: RenameGroupRequest):
     for group in db_instance.memory_watchlists:
         if group["id"] == group_id:
             group["name"] = req.name.strip()
+            db_instance.save_storage_to_disk()
             return {"message": f"Watchlist renamed to '{req.name}'", "group": group}
     raise HTTPException(status_code=404, detail="Watchlist group not found")
 
 @router.delete("/group/{group_id}")
 async def delete_watchlist_group(group_id: str):
     db_instance.memory_watchlists = [g for g in db_instance.memory_watchlists if g["id"] != group_id]
+    db_instance.save_storage_to_disk()
     return {"message": f"Watchlist group '{group_id}' deleted"}
 
 @router.post("", response_model=Dict[str, Any])
@@ -211,6 +212,8 @@ async def add_to_watchlist(item: WatchlistAddRequest):
             return {"message": f"{item.symbol} is already in {target_group['name']}", "item": s}
     target_group["items"].append(new_stock)
 
+    db_instance.save_storage_to_disk()
+
     return {"message": f"Added {item.symbol} to watchlist", "item": new_stock}
 
 @router.delete("/{symbol}")
@@ -220,6 +223,8 @@ async def remove_from_watchlist(symbol: str, group_id: Optional[str] = None):
         if not group_id or g["id"] == group_id:
             g["items"] = [s for s in g["items"] if s["symbol"] != symbol_upper]
 
+    db_instance.save_storage_to_disk()
+
     return {"message": f"Removed {symbol_upper} from watchlist", "symbol": symbol_upper}
 
 @router.put("/{symbol}/star")
@@ -227,10 +232,12 @@ async def toggle_star_stock(symbol: str):
     symbol_upper = symbol.upper()
     new_starred_state = False
     for g in db_instance.memory_watchlists:
-        for stock in g["items"]:
+        for stock in g.get("items", []):
             if stock["symbol"] == symbol_upper:
                 stock["starred"] = not stock.get("starred", False)
                 new_starred_state = stock["starred"]
                 break
+
+    db_instance.save_storage_to_disk()
 
     return {"symbol": symbol_upper, "starred": new_starred_state}
