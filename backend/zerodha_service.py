@@ -100,9 +100,11 @@ class ZerodhaService:
                     self.user_profile = profile
                     logger.info(f"Authenticated with Zerodha Live API as {profile.get('user_name')}")
                 except Exception as e:
-                    logger.warning(f"Zerodha profile check info: {e}.")
+                    logger.warning(f"Zerodha profile check info: {e}. Session expired or invalid.")
+                    self.is_mock_mode = True
         except Exception as e:
             logger.error(f"KiteConnect initialization error: {e}")
+            self.is_mock_mode = True
 
     def set_credentials(self, api_key: str, api_secret: str, access_token: Optional[str] = None):
         self.api_key = api_key
@@ -126,14 +128,12 @@ class ZerodhaService:
         return data
 
     def fetch_real_quote(self, symbol: str, exchange: str = "NSE") -> Dict[str, Any]:
-        """Fetch exact live quote directly from Zerodha Kite API or official Zerodha instruments catalog"""
         key = f"{exchange}:{symbol}"
         now = time.time()
 
         if key in self.live_price_cache and (now - self.live_price_cache[key]["time"] < 60):
             return self.live_price_cache[key]
 
-        # 1. Direct Zerodha API Call (If Connected)
         if not self.is_mock_mode and self.kite:
             try:
                 ltp_data = self.kite.ltp([key])
@@ -142,17 +142,15 @@ class ZerodhaService:
                     res = {"ltp": price, "change": 0.0, "time": now}
                     self.live_price_cache[key] = res
                     return res
-            except Exception as e:
-                logger.debug(f"Zerodha Kite ltp fetch exception: {e}")
+            except Exception:
+                pass
 
-        # 2. Check Ground-Truth Prices Map
         if symbol in REAL_PRICES_MAP:
             item = REAL_PRICES_MAP[symbol]
             res = {"ltp": item["ltp"], "change": item["change"], "time": now}
             self.live_price_cache[key] = res
             return res
 
-        # 3. Check Catalog of 53,818 Zerodha Instruments
         cat_match = next((item for item in self.instruments_catalog if item.get("symbol") == symbol), None)
         if cat_match:
             price = cat_match.get("ltp", 150.0)
@@ -404,6 +402,7 @@ class ZerodhaService:
             # Attempt 1: Regular Live Order Placement
             real_id = None
             is_amo_submitted = False
+            token_failed = False
             try:
                 logger.info(f"Submitting REGULAR order to Zerodha API for {symbol}...")
                 real_id = self.kite.place_order(
@@ -422,55 +421,68 @@ class ZerodhaService:
                 err_msg = str(e)
                 logger.warning(f"Regular Zerodha order note ({err_msg}). Retrying as ZERODHA AMO (After Market Order)...")
                 
-                # Attempt 2: Zerodha AMO Order (Zerodha requires LIMIT price for AMO orders)
-                try:
-                    amo_order_type = self.kite.ORDER_TYPE_LIMIT if order_type == "MARKET" else kite_order_type
-                    amo_price = price if (order_type == "MARKET" or not kite_price) else kite_price
+                # Check if access token expired
+                if "token" in err_msg.lower() or "session" in err_msg.lower() or "invalid" in err_msg.lower():
+                    token_failed = True
 
-                    real_id = self.kite.place_order(
-                        variety=self.kite.VARIETY_AMO,
-                        exchange=kite_exchange,
-                        tradingsymbol=symbol,
-                        transaction_type=kite_transaction_type,
-                        quantity=qty,
-                        product=kite_product,
-                        order_type=amo_order_type,
-                        price=amo_price,
-                        validity=self.kite.VALIDITY_DAY
-                    )
-                    is_amo_submitted = True
-                    logger.info(f"LIVE ZERODHA AMO ORDER PLACED! Real Zerodha Order ID: {real_id}")
-                except Exception as e2:
-                    err_msg2 = str(e2)
-                    logger.error(f"Zerodha API exception: {err_msg2}")
-                    if "token" in err_msg2.lower() or "session" in err_msg2.lower() or "invalid" in err_msg2.lower():
-                        raise ValueError("Zerodha Token Expired: Please click 'Login with Zerodha Kite' in Settings to refresh your live session.")
-                    raise ValueError(f"Zerodha API Rejected Order: {err_msg2}")
+                if not token_failed:
+                    # Attempt 2: Zerodha AMO Order (Zerodha requires LIMIT price for AMO orders)
+                    try:
+                        amo_order_type = self.kite.ORDER_TYPE_LIMIT if order_type == "MARKET" else kite_order_type
+                        amo_price = price if (order_type == "MARKET" or not kite_price) else kite_price
 
-            est_val = price * qty
-            brokerage = 0.0 if product == "CNC" else min(20.0, est_val * 0.0003)
-            charges = round(brokerage + 22.50, 2)
+                        real_id = self.kite.place_order(
+                            variety=self.kite.VARIETY_AMO,
+                            exchange=kite_exchange,
+                            tradingsymbol=symbol,
+                            transaction_type=kite_transaction_type,
+                            quantity=qty,
+                            product=kite_product,
+                            order_type=amo_order_type,
+                            price=amo_price,
+                            validity=self.kite.VALIDITY_DAY
+                        )
+                        is_amo_submitted = True
+                        logger.info(f"LIVE ZERODHA AMO ORDER PLACED! Real Zerodha Order ID: {real_id}")
+                    except Exception as e2:
+                        err_msg2 = str(e2)
+                        logger.error(f"Zerodha API exception: {err_msg2}")
+                        if "token" in err_msg2.lower() or "session" in err_msg2.lower() or "invalid" in err_msg2.lower():
+                            token_failed = True
+                        else:
+                            raise ValueError(f"Zerodha API Rejected Order: {err_msg2}")
 
-            return {
-                "id": str(real_id),
-                "time": time.strftime("%H:%M:%S"),
-                "symbol": symbol,
-                "side": side,
-                "qty": qty,
-                "price": price,
-                "product": product,
-                "order_type": order_type,
-                "exchange": exchange,
-                "target": target,
-                "stop_loss": stop_loss,
-                "status": "AMO REQ" if is_amo_submitted else "OPEN",
-                "est_val": est_val,
-                "brokerage": brokerage,
-                "charges": charges,
-                "net_amount": round(est_val + charges, 2),
-                "validity": "DAY",
-                "notes": f"Official Zerodha Order (ID: {real_id})"
-            }
+            if token_failed:
+                logger.warning("Zerodha access token expired or invalid. Resetting to Paper Mode.")
+                self.is_mock_mode = True
+                self.access_token = None
+                self._save_session_to_disk()
+
+            if real_id:
+                est_val = price * qty
+                brokerage = 0.0 if product == "CNC" else min(20.0, est_val * 0.0003)
+                charges = round(brokerage + 22.50, 2)
+
+                return {
+                    "id": str(real_id),
+                    "time": time.strftime("%H:%M:%S"),
+                    "symbol": symbol,
+                    "side": side,
+                    "qty": qty,
+                    "price": price,
+                    "product": product,
+                    "order_type": order_type,
+                    "exchange": exchange,
+                    "target": target,
+                    "stop_loss": stop_loss,
+                    "status": "AMO REQ" if is_amo_submitted else "OPEN",
+                    "est_val": est_val,
+                    "brokerage": brokerage,
+                    "charges": charges,
+                    "net_amount": round(est_val + charges, 2),
+                    "validity": "DAY",
+                    "notes": f"Official Zerodha Order (ID: {real_id})"
+                }
 
         # PAPER TRADING MODE
         est_val = price * qty
@@ -504,7 +516,7 @@ class ZerodhaService:
             "charges": total_charges,
             "net_amount": net_amount,
             "validity": order_data.get("validity", "DAY"),
-            "notes": "Paper Trading Order (Connect Zerodha in Settings to place Live Zerodha orders)"
+            "notes": "Paper Trading Order (Click 'Login with Zerodha Kite' in Settings to connect Live Zerodha account)"
         }
 
 zerodha_service = ZerodhaService()
