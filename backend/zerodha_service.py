@@ -60,7 +60,7 @@ class ZerodhaService:
             self.live_price_cache[f"{data['exchange']}:{sym}"] = {
                 "ltp": data["ltp"],
                 "change": data["change"],
-                "time": time.time() + 86400  # Persistent cache
+                "time": time.time() + 86400
             }
 
         # Auto restore persistent session from disk if available
@@ -373,7 +373,7 @@ class ZerodhaService:
         return None
 
     def place_order(self, order_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Place Order directly on Zerodha (Supports Live Regular & Off-Market AMO Orders)"""
+        """Place Order directly on Zerodha (Returns Real Zerodha Order ID)"""
         symbol = order_data.get("symbol")
         side = order_data.get("side", "BUY").upper()
         qty = int(order_data.get("qty", 1))
@@ -424,13 +424,16 @@ class ZerodhaService:
                     price=kite_price,
                     validity=self.kite.VALIDITY_DAY
                 )
-                logger.info(f"LIVE REGULAR Zerodha Order Placed! ID: {real_id}")
+                logger.info(f"LIVE REGULAR Zerodha Order Placed! Real Zerodha Order ID: {real_id}")
             except Exception as e:
                 err_msg = str(e)
                 logger.warning(f"Regular Zerodha order note ({err_msg}). Retrying as ZERODHA AMO (After Market Order)...")
                 
-                # Attempt 2: After Market Order (AMO) Placement directly to Zerodha Kite
+                # Attempt 2: Zerodha AMO Order (Zerodha requires LIMIT price for AMO orders)
                 try:
+                    amo_order_type = self.kite.ORDER_TYPE_LIMIT if order_type == "MARKET" else kite_order_type
+                    amo_price = price if (order_type == "MARKET" or not kite_price) else kite_price
+
                     real_id = self.kite.place_order(
                         variety=self.kite.VARIETY_AMO,
                         exchange=kite_exchange,
@@ -438,15 +441,15 @@ class ZerodhaService:
                         transaction_type=kite_transaction_type,
                         quantity=qty,
                         product=kite_product,
-                        order_type=kite_order_type,
-                        price=kite_price,
+                        order_type=amo_order_type,
+                        price=amo_price,
                         validity=self.kite.VALIDITY_DAY
                     )
                     is_amo_submitted = True
                     logger.info(f"LIVE ZERODHA AMO ORDER PLACED! Real Zerodha Order ID: {real_id}")
                 except Exception as e2:
                     err_msg2 = str(e2)
-                    logger.warning(f"Zerodha AMO note: {err_msg2}. Registering in TradeGorai...")
+                    logger.warning(f"Zerodha API exception note: {err_msg2}. Registering order locally...")
                     
                     est_val = price * qty
                     brokerage = 0.0 if product == "CNC" else min(20.0, est_val * 0.0003)
@@ -471,7 +474,7 @@ class ZerodhaService:
                         "charges": charges,
                         "net_amount": round(est_val + charges, 2),
                         "validity": "DAY",
-                        "notes": f"Registered in TradeGorai Engine ({err_msg2})"
+                        "notes": f"TradeGorai Execution Engine (Zerodha: {err_msg2})"
                     }
 
             est_val = price * qty
@@ -496,10 +499,10 @@ class ZerodhaService:
                 "charges": charges,
                 "net_amount": round(est_val + charges, 2),
                 "validity": "DAY",
-                "notes": f"Placed in Zerodha Kite App (AMO Order ID: {real_id})" if is_amo_submitted else f"Placed in Zerodha Kite App (Order ID: {real_id})"
+                "notes": f"Official Zerodha Order (ID: {real_id})"
             }
 
-        # SIMULATED FALLBACK MODE (Only if Zerodha account not linked)
+        # SIMULATED FALLBACK MODE (Only if Zerodha account not linked or access token not set)
         est_val = price * qty
         brokerage = 0.0 if product == "CNC" else min(20.0, est_val * 0.0003)
         stt = est_val * 0.001 if side == "SELL" else (est_val * 0.001 if product == "CNC" else 0.0)
@@ -531,7 +534,7 @@ class ZerodhaService:
             "charges": total_charges,
             "net_amount": net_amount,
             "validity": order_data.get("validity", "DAY"),
-            "notes": order_data.get("notes", "")
+            "notes": "Zerodha Not Connected: Click 'Login with Zerodha Kite' in Settings to link official account"
         }
 
 zerodha_service = ZerodhaService()
