@@ -401,8 +401,15 @@ class ZerodhaService:
         if price <= 0:
             price = quote["ltp"]
 
-        # DIRECT ZERODHA API ORDER PLACEMENT
-        if not self.is_mock_mode and self.kite and self.access_token:
+        # Zerodha does not accept any orders (regular or AMO) on weekends.
+        # Attempting the API on Saturday/Sunday will always result in a rejection,
+        # which would pollute the order book with Z-REJ- entries.
+        # Skip Zerodha entirely on weekends and fall through to Paper mode.
+        ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+        is_weekday = datetime.datetime.now(tz=ist_offset).weekday() < 5  # Mon=0 … Fri=4
+
+        # DIRECT ZERODHA API ORDER PLACEMENT (weekdays only)
+        if not self.is_mock_mode and self.kite and self.access_token and is_weekday:
             kite_order_type = self.kite.ORDER_TYPE_MARKET if order_type == "MARKET" else self.kite.ORDER_TYPE_LIMIT
             kite_transaction_type = self.kite.TRANSACTION_TYPE_BUY if side == "BUY" else self.kite.TRANSACTION_TYPE_SELL
             
@@ -541,11 +548,22 @@ class ZerodhaService:
         order_id = f"PAPER-{int(time.time() * 1000)}"
         time_str = time.strftime("%H:%M:%S")
         # A MARKET order is only instantly EXECUTED if the market is actually open.
-        # Outside market hours it sits as PENDING — no position must be created.
+        # Outside market hours (or on weekends) it stays PENDING — no position is created.
         if order_type == "MARKET" and is_market_open_ist():
             status = "EXECUTED"
         else:
             status = "PENDING"
+
+        # Context-aware note so the user knows exactly why this is a paper order
+        ist_now = datetime.datetime.now(tz=datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
+        if ist_now.weekday() >= 5:
+            note = "📅 Weekend — Zerodha does not accept orders on Saturday/Sunday. Order queued as Paper."
+        elif not is_market_open_ist():
+            note = "🕐 Market closed (09:15–15:30 IST, Mon–Fri). Order queued as Paper pending next session."
+        elif self.is_mock_mode or not self.access_token:
+            note = "📄 Paper Trading — connect your Zerodha account in Settings to route live orders."
+        else:
+            note = "📄 Paper Trading Order"
 
         return {
             "id": order_id,
@@ -565,7 +583,7 @@ class ZerodhaService:
             "charges": total_charges,
             "net_amount": net_amount,
             "validity": order_data.get("validity", "DAY"),
-            "notes": "Paper Trading Order (Click 'Login with Zerodha Kite' in Settings to connect Live Zerodha account)"
+            "notes": note
         }
 
 zerodha_service = ZerodhaService()
