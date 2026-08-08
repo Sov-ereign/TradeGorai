@@ -374,7 +374,7 @@ class ZerodhaService:
         return None
 
     def place_order(self, order_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Place Order Directly to Zerodha Exchange if connected; handle off-market hours cleanly"""
+        """Place Order directly on Zerodha (Supports Live Regular & Off-Market AMO Orders)"""
         symbol = order_data.get("symbol")
         side = order_data.get("side", "BUY").upper()
         qty = int(order_data.get("qty", 1))
@@ -390,24 +390,26 @@ class ZerodhaService:
         if price <= 0:
             price = quote["ltp"]
 
-        # DIRECT ZERODHA EXCHANGE ORDER PLACEMENT
+        # DIRECT ZERODHA API ORDER PLACEMENT
         if not self.is_mock_mode and self.kite and self.access_token:
+            kite_order_type = self.kite.ORDER_TYPE_MARKET if order_type == "MARKET" else self.kite.ORDER_TYPE_LIMIT
+            kite_transaction_type = self.kite.TRANSACTION_TYPE_BUY if side == "BUY" else self.kite.TRANSACTION_TYPE_SELL
+            kite_product = self.kite.PRODUCT_CNC if product == "CNC" else self.kite.PRODUCT_MIS
+            
+            if exchange == "BSE":
+                kite_exchange = self.kite.EXCHANGE_BSE
+            elif exchange == "NFO":
+                kite_exchange = self.kite.EXCHANGE_NFO
+            else:
+                kite_exchange = self.kite.EXCHANGE_NSE
+
+            kite_price = price if order_type == "LIMIT" else None
+
+            # Attempt 1: Regular Live Order Placement
+            real_id = None
+            is_amo_submitted = False
             try:
-                kite_order_type = self.kite.ORDER_TYPE_MARKET if order_type == "MARKET" else self.kite.ORDER_TYPE_LIMIT
-                kite_transaction_type = self.kite.TRANSACTION_TYPE_BUY if side == "BUY" else self.kite.TRANSACTION_TYPE_SELL
-                kite_product = self.kite.PRODUCT_CNC if product == "CNC" else self.kite.PRODUCT_MIS
-                
-                if exchange == "BSE":
-                    kite_exchange = self.kite.EXCHANGE_BSE
-                elif exchange == "NFO":
-                    kite_exchange = self.kite.EXCHANGE_NFO
-                else:
-                    kite_exchange = self.kite.EXCHANGE_NSE
-
-                # Market orders require price=None in Kite Connect SDK
-                kite_price = price if order_type == "LIMIT" else None
-
-                logger.info(f"Submitting LIVE Order to Zerodha Exchange for {symbol} ({side} {qty} @ {exchange})...")
+                logger.info(f"Submitting REGULAR order to Zerodha API for {symbol}...")
                 real_id = self.kite.place_order(
                     variety=self.kite.VARIETY_REGULAR,
                     exchange=kite_exchange,
@@ -419,63 +421,54 @@ class ZerodhaService:
                     price=kite_price,
                     validity=self.kite.VALIDITY_DAY
                 )
-
-                logger.info(f"LIVE Order SUCCESS! Zerodha Order ID: {real_id}")
-
-                est_val = price * qty
-                brokerage = 0.0 if product == "CNC" else min(20.0, est_val * 0.0003)
-                charges = round(brokerage + 22.50, 2)
-
-                return {
-                    "id": str(real_id),
-                    "time": time.strftime("%H:%M:%S"),
-                    "symbol": symbol,
-                    "side": side,
-                    "qty": qty,
-                    "price": price,
-                    "product": product,
-                    "order_type": order_type,
-                    "exchange": exchange,
-                    "target": target,
-                    "stop_loss": stop_loss,
-                    "status": "OPEN",
-                    "est_val": est_val,
-                    "brokerage": brokerage,
-                    "charges": charges,
-                    "net_amount": round(est_val + charges, 2),
-                    "validity": "DAY",
-                    "notes": f"Submitted to Zerodha Exchange (ID: {real_id})"
-                }
+                logger.info(f"LIVE REGULAR Zerodha Order Placed! ID: {real_id}")
             except Exception as e:
                 err_msg = str(e)
-                logger.warning(f"Zerodha Exchange note ({err_msg}). Placing in TradeGorai Engine...")
+                logger.warning(f"Regular Zerodha order failed ({err_msg}). Retrying as ZERODHA AMO (After Market Order)...")
                 
-                # If off-market hours or regular order rejected by exchange, register order in TradeGorai Execution Engine
-                est_val = price * qty
-                brokerage = 0.0 if product == "CNC" else min(20.0, est_val * 0.0003)
-                charges = round(brokerage + 22.50, 2)
-                order_id = f"TG-{random.randint(100000000000, 999999999999)}"
+                # Attempt 2: After Market Order (AMO) Placement directly to Zerodha Kite
+                try:
+                    real_id = self.kite.place_order(
+                        variety=self.kite.VARIETY_AMO,
+                        exchange=kite_exchange,
+                        tradingsymbol=symbol,
+                        transaction_type=kite_transaction_type,
+                        quantity=qty,
+                        product=kite_product,
+                        order_type=kite_order_type,
+                        price=kite_price,
+                        validity=self.kite.VALIDITY_DAY
+                    )
+                    is_amo_submitted = True
+                    logger.info(f"LIVE ZERODHA AMO ORDER PLACED! Real Zerodha Order ID: {real_id}")
+                except Exception as e2:
+                    logger.error(f"Zerodha AMO placement error: {e2}")
+                    raise ValueError(f"Zerodha Order Rejected: {str(e2)}")
 
-                return {
-                    "id": order_id,
-                    "time": time.strftime("%H:%M:%S"),
-                    "symbol": symbol,
-                    "side": side,
-                    "qty": qty,
-                    "price": price,
-                    "product": product,
-                    "order_type": order_type,
-                    "exchange": exchange,
-                    "target": target,
-                    "stop_loss": stop_loss,
-                    "status": "EXECUTED",
-                    "est_val": est_val,
-                    "brokerage": brokerage,
-                    "charges": charges,
-                    "net_amount": round(est_val + charges, 2),
-                    "validity": "DAY",
-                    "notes": f"TradeGorai Execution Engine (Zerodha note: {err_msg})"
-                }
+            est_val = price * qty
+            brokerage = 0.0 if product == "CNC" else min(20.0, est_val * 0.0003)
+            charges = round(brokerage + 22.50, 2)
+
+            return {
+                "id": str(real_id),
+                "time": time.strftime("%H:%M:%S"),
+                "symbol": symbol,
+                "side": side,
+                "qty": qty,
+                "price": price,
+                "product": product,
+                "order_type": order_type,
+                "exchange": exchange,
+                "target": target,
+                "stop_loss": stop_loss,
+                "status": "AMO REQ" if is_amo_submitted else "OPEN",
+                "est_val": est_val,
+                "brokerage": brokerage,
+                "charges": charges,
+                "net_amount": round(est_val + charges, 2),
+                "validity": "DAY",
+                "notes": f"Placed in Zerodha Kite App (AMO Order ID: {real_id})" if is_amo_submitted else f"Placed in Zerodha Kite App (Order ID: {real_id})"
+            }
 
         # SIMULATED FALLBACK MODE (Only if Zerodha account not linked)
         est_val = price * qty
