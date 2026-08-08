@@ -14,7 +14,7 @@ from config import settings
 from database import connect_to_mongo, close_mongo_connection, db_instance
 from zerodha_service import zerodha_service
 
-from routers import watchlist, orders, positions, portfolio, market
+from routers import watchlist, orders, positions, portfolio, market, strategy
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tradegorai.main")
@@ -53,6 +53,7 @@ app.include_router(orders.router)
 app.include_router(positions.router)
 app.include_router(portfolio.router)
 app.include_router(market.router)
+app.include_router(strategy.router)
 
 # Also register root-level aliases for direct requests without /api prefix
 @app.get("/watchlist")

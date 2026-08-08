@@ -7,6 +7,7 @@ import { OrderEntryPanel } from './components/OrderEntryPanel';
 import { PositionsPanel } from './components/PositionsPanel';
 import { OrdersPanel } from './components/OrdersPanel';
 import { ActivityFeed } from './components/ActivityFeed';
+import { StrategyStudio } from './components/StrategyStudio';
 import { NotificationToast } from './components/NotificationToast';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { MobileBottomNav, type MobileTab } from './components/MobileBottomNav';
@@ -98,10 +99,24 @@ export function App() {
   useEffect(() => {
     loadDashboardData();
 
-    // Connect WebSocket tick stream
+    // Connect WebSocket tick stream & virtual trigger events
     wsClient.connect();
-    const unsubscribe = wsClient.subscribe((ticks) => {
+    const unsubscribe = wsClient.subscribe((data) => {
       setWsConnected(true);
+
+      // Check Virtual Trigger Notifications
+      if (data.type === 'VIRTUAL_TRIGGER') {
+        addNotification(
+          data.trigger_type === 'TARGET' ? '🎯 Virtual Target Triggered' : '🛡️ Virtual Stop Loss Triggered',
+          data.message,
+          data.trigger_type === 'TARGET' ? 'success' : 'warning'
+        );
+        addActivity(data.message, 'ORDER', 'info');
+        loadDashboardData();
+        return;
+      }
+
+      const ticks = data.ticks || {};
 
       // Update Watchlist items with new tick prices
       setWatchlist((prevWl) =>
@@ -315,6 +330,13 @@ export function App() {
               </div>
             )}
 
+            {/* Strategy Algo Studio Page */}
+            {activeTab === 'strategy' && (
+              <div className="h-full">
+                <StrategyStudio />
+              </div>
+            )}
+
             {/* Watchlist Full Page */}
             {activeTab === 'watchlist' && (
               <div className="h-full max-w-4xl mx-auto">
@@ -474,7 +496,7 @@ export function App() {
             )}
 
             {activeMobileTab === 'baskets' && (
-              <ActivityFeed activities={activities} />
+              <StrategyStudio />
             )}
 
             {activeMobileTab === 'profile' && (
@@ -517,7 +539,7 @@ export function App() {
         </main>
       </div>
 
-      {/* Mobile Bottom Navigation Bar (Zerodha Kite App Style) */}
+      {/* Mobile Bottom Navigation Bar */}
       <MobileBottomNav
         activeMobileTab={activeMobileTab}
         setActiveMobileTab={setActiveMobileTab}

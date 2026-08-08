@@ -17,6 +17,22 @@ export interface WatchlistGroup {
   items: Stock[];
 }
 
+export interface AlgoStrategy {
+  id: string;
+  name: string;
+  description: string;
+  category: 'Scalping' | 'Momentum' | 'Options' | 'Breakout' | 'Webhook';
+  status: 'RUNNING' | 'PAUSED' | 'STOPPED';
+  timeframe: string;
+  instrument: string;
+  win_rate: number;
+  total_trades: number;
+  total_pnl: number;
+  params: Record<string, any>;
+  last_signal?: string;
+  last_signal_time?: string;
+}
+
 export type ProductType = 'CNC' | 'MIS';
 export type OrderType = 'MARKET' | 'LIMIT';
 export type OrderSide = 'BUY' | 'SELL';

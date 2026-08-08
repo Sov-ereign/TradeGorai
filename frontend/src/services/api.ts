@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Stock, Order, Position, PortfolioMetrics, WatchlistGroup } from '../types/trading';
+import type { Stock, Order, Position, PortfolioMetrics, WatchlistGroup, AlgoStrategy } from '../types/trading';
 
 // Normalize VITE_API_BASE_URL to always include /api path
 let rawBase = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api').trim();
@@ -125,5 +125,15 @@ export const squareOffAllPositions = async () => {
 
 export const getPortfolioSummary = async (): Promise<PortfolioMetrics> => {
   const res = await api.get('/portfolio');
+  return res.data;
+};
+
+export const getStrategies = async (): Promise<AlgoStrategy[]> => {
+  const res = await api.get('/strategy');
+  return res.data;
+};
+
+export const toggleStrategy = async (strategyId: string, status?: string) => {
+  const res = await api.post(`/strategy/${strategyId}/toggle`, { status });
   return res.data;
 };
