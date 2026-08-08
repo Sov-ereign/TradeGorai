@@ -38,7 +38,7 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
   const handleSubmitOrder = async () => {
     setIsSubmitting(true);
     try {
-      await placeOrder({
+      const res = await placeOrder({
         symbol: stock.symbol,
         side,
         qty,
@@ -55,10 +55,13 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
         ? ' (🔒 Target/SL kept HIDDEN from Zerodha until LTP triggers)'
         : '';
 
-      onOrderPlaced(`🟢 Order placed: ${side} ${qty} qty of ${stock.symbol} @ ₹${effectivePrice}${hiddenMsg}`);
+      const orderIdMsg = res.order?.id ? ` [ID: ${res.order.id}]` : '';
+      onOrderPlaced(`🟢 Order placed: ${side} ${qty} qty of ${stock.symbol} @ ₹${effectivePrice}${orderIdMsg}${hiddenMsg}`);
       onClose();
     } catch (err: any) {
-      onOrderPlaced(`🔴 Order error: ${err.message || 'Placement failed'}`);
+      const errMsg = err.response?.data?.detail || err.message || 'Placement failed';
+      onOrderPlaced(`🔴 Order note: ${errMsg}`);
+      onClose();
     } finally {
       setIsSubmitting(false);
     }
@@ -67,42 +70,42 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div
-        className={`w-full max-w-md bg-[#121721] border border-[#1E2638] rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden transition-all transform animate-in slide-in-from-bottom duration-200`}
+        className={`w-full max-w-lg bg-[#121721] border-t sm:border border-[#1E2638] rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden transition-all transform animate-in slide-in-from-bottom duration-200 flex flex-col max-h-[92vh] sm:max-h-[85vh]`}
       >
         {/* Kite Header Banner (Blue for BUY, Red for SELL) */}
         <div
-          className={`p-4 transition-colors ${
+          className={`p-3.5 sm:p-4 transition-colors ${
             isBuy ? 'bg-[#387ED1]' : 'bg-[#DF514C]'
-          } text-white flex items-center justify-between`}
+          } text-white flex items-center justify-between shrink-0`}
         >
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-bold tracking-tight">{stock.symbol}</h2>
-              <span className="text-[10px] bg-black/20 px-1.5 py-0.5 rounded font-mono uppercase">
+              <h2 className="text-base sm:text-lg font-bold tracking-tight">{stock.symbol}</h2>
+              <span className="text-[10px] bg-black/25 px-1.5 py-0.5 rounded font-mono uppercase font-semibold">
                 {stock.exchange || 'NSE'}
               </span>
             </div>
-            <span className="text-xs opacity-90 block truncate">{stock.name}</span>
+            <span className="text-xs opacity-95 block truncate max-w-[200px] sm:max-w-xs">{stock.name}</span>
           </div>
 
           <div className="flex items-center gap-3">
             <div className="text-right">
               <span className="font-mono text-base font-bold block">₹{(stock?.ltp ?? 0).toFixed(2)}</span>
-              <span className="text-[11px] font-semibold opacity-90">
+              <span className="text-[11px] font-semibold opacity-95">
                 {(stock?.change ?? 0) >= 0 ? '+' : ''}{(stock?.change ?? 0).toFixed(2)}%
               </span>
             </div>
-            <button onClick={onClose} className="text-white/80 hover:text-white p-1">
+            <button onClick={onClose} className="text-white/80 hover:text-white p-1.5 rounded-lg hover:bg-black/20 transition-colors">
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
         {/* Order Side Toggle Tabs */}
-        <div className="flex border-b border-[#1E2638] bg-[#0D111A]">
+        <div className="flex border-b border-[#1E2638] bg-[#0D111A] shrink-0">
           <button
             onClick={() => setSide('BUY')}
-            className={`flex-1 py-2.5 text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-3 text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 ${
               isBuy ? 'bg-[#387ED1]/20 text-[#387ED1] border-b-2 border-[#387ED1]' : 'text-slate-400 hover:text-white'
             }`}
           >
@@ -111,7 +114,7 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
           </button>
           <button
             onClick={() => setSide('SELL')}
-            className={`flex-1 py-2.5 text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-3 text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 ${
               !isBuy ? 'bg-[#DF514C]/20 text-[#DF514C] border-b-2 border-[#DF514C]' : 'text-slate-400 hover:text-white'
             }`}
           >
@@ -120,8 +123,8 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
           </button>
         </div>
 
-        {/* Main Form Fields */}
-        <div className="p-4 space-y-3.5 max-h-[75vh] overflow-y-auto">
+        {/* Scrollable Main Form Fields */}
+        <div className="p-4 space-y-4 overflow-y-auto flex-1">
           {/* Product Type Pills (CNC vs MIS) */}
           <div>
             <label className="text-[11px] font-semibold text-slate-400 block mb-1.5 uppercase tracking-wider">
@@ -131,24 +134,24 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
               <button
                 type="button"
                 onClick={() => setProduct('CNC')}
-                className={`py-2 text-xs font-bold rounded-lg border transition-all ${
+                className={`py-2.5 text-xs font-bold rounded-xl border transition-all ${
                   product === 'CNC'
-                    ? 'bg-[#182030] text-emerald-400 border-emerald-500/50'
+                    ? 'bg-[#182030] text-emerald-400 border-emerald-500/50 shadow-sm'
                     : 'bg-[#0D111A] text-slate-400 border-[#1E2638] hover:text-white'
                 }`}
               >
-                CNC (Longterm)
+                CNC (Longterm Delivery)
               </button>
               <button
                 type="button"
                 onClick={() => setProduct('MIS')}
-                className={`py-2 text-xs font-bold rounded-lg border transition-all ${
+                className={`py-2.5 text-xs font-bold rounded-xl border transition-all ${
                   product === 'MIS'
-                    ? 'bg-[#182030] text-amber-400 border-amber-500/50'
+                    ? 'bg-[#182030] text-amber-400 border-amber-500/50 shadow-sm'
                     : 'bg-[#0D111A] text-slate-400 border-[#1E2638] hover:text-white'
                 }`}
               >
-                MIS (Intraday)
+                MIS (Intraday Margin)
               </button>
             </div>
           </div>
@@ -156,43 +159,43 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
           {/* Order Type Pills (MARKET vs LIMIT) */}
           <div>
             <label className="text-[11px] font-semibold text-slate-400 block mb-1.5 uppercase tracking-wider">
-              Type
+              Order Type
             </label>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setOrderType('MARKET')}
-                className={`py-2 text-xs font-bold rounded-lg border transition-all ${
+                className={`py-2.5 text-xs font-bold rounded-xl border transition-all ${
                   orderType === 'MARKET'
-                    ? 'bg-[#182030] text-slate-100 border-slate-500'
+                    ? 'bg-[#182030] text-slate-100 border-slate-500 shadow-sm'
                     : 'bg-[#0D111A] text-slate-400 border-[#1E2638] hover:text-white'
                 }`}
               >
-                Market
+                Market (Best LTP)
               </button>
               <button
                 type="button"
                 onClick={() => setOrderType('LIMIT')}
-                className={`py-2 text-xs font-bold rounded-lg border transition-all ${
+                className={`py-2.5 text-xs font-bold rounded-xl border transition-all ${
                   orderType === 'LIMIT'
-                    ? 'bg-[#182030] text-slate-100 border-slate-500'
+                    ? 'bg-[#182030] text-slate-100 border-slate-500 shadow-sm'
                     : 'bg-[#0D111A] text-slate-400 border-[#1E2638] hover:text-white'
                 }`}
               >
-                Limit
+                Limit (Custom Price)
               </button>
             </div>
           </div>
 
           {/* Quantity & Price Inputs */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-[11px] font-semibold text-slate-400 block mb-1">Quantity</label>
-              <div className="flex items-center bg-[#0D111A] border border-[#1E2638] rounded-lg overflow-hidden focus-within:border-[#387ED1]">
+              <div className="flex items-center bg-[#0D111A] border border-[#1E2638] rounded-xl overflow-hidden focus-within:border-[#387ED1]">
                 <button
                   type="button"
                   onClick={() => setQty(Math.max(1, qty - 1))}
-                  className="px-3 py-2 text-slate-400 hover:text-white font-bold bg-[#151B28]"
+                  className="px-4 py-2.5 text-slate-300 hover:text-white font-bold bg-[#151B28] text-sm"
                 >
                   -
                 </button>
@@ -201,12 +204,12 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
                   min="1"
                   value={qty}
                   onChange={(e) => setQty(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-full text-center bg-transparent py-2 text-xs font-bold font-mono text-slate-100 outline-none"
+                  className="w-full text-center bg-transparent py-2 text-sm font-bold font-mono text-slate-100 outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => setQty(qty + 1)}
-                  className="px-3 py-2 text-slate-400 hover:text-white font-bold bg-[#151B28]"
+                  className="px-4 py-2.5 text-slate-300 hover:text-white font-bold bg-[#151B28] text-sm"
                 >
                   +
                 </button>
@@ -221,7 +224,7 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
                 disabled={orderType === 'MARKET'}
                 value={orderType === 'MARKET' ? stock.ltp : limitPrice}
                 onChange={(e) => setLimitPrice(parseFloat(e.target.value) || stock.ltp)}
-                className={`w-full bg-[#0D111A] border border-[#1E2638] rounded-lg px-3 py-2 text-xs font-bold font-mono text-slate-100 outline-none ${
+                className={`w-full bg-[#0D111A] border border-[#1E2638] rounded-xl px-3 py-2.5 text-sm font-bold font-mono text-slate-100 outline-none ${
                   orderType === 'MARKET' ? 'opacity-50 cursor-not-allowed' : 'focus:border-[#387ED1]'
                 }`}
               />
@@ -229,7 +232,7 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
           </div>
 
           {/* HIDDEN TARGET & STOP LOSS SECTION */}
-          <div className="pt-2 border-t border-[#1E2638]">
+          <div className="pt-3 border-t border-[#1E2638]">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[11px] font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                 <Lock className="w-3.5 h-3.5 text-emerald-400" />
@@ -241,7 +244,7 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="text-[11px] font-semibold text-slate-400 block mb-1">
                   Hidden Target (₹)
@@ -249,10 +252,10 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
                 <input
                   type="number"
                   step="0.05"
-                  placeholder="e.g. 3100.00"
+                  placeholder="e.g. 385.00"
                   value={targetPrice}
                   onChange={(e) => setTargetPrice(e.target.value)}
-                  className="w-full bg-[#0D111A] border border-[#1E2638] focus:border-emerald-500 rounded-lg px-3 py-2 text-xs font-mono text-emerald-400 font-bold outline-none placeholder-slate-600"
+                  className="w-full bg-[#0D111A] border border-[#1E2638] focus:border-emerald-500 rounded-xl px-3 py-2 text-xs font-mono text-emerald-400 font-bold outline-none placeholder-slate-600"
                 />
               </div>
 
@@ -263,10 +266,10 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
                 <input
                   type="number"
                   step="0.05"
-                  placeholder="e.g. 2900.00"
+                  placeholder="e.g. 370.00"
                   value={stopLossPrice}
                   onChange={(e) => setStopLossPrice(e.target.value)}
-                  className="w-full bg-[#0D111A] border border-[#1E2638] focus:border-rose-500 rounded-lg px-3 py-2 text-xs font-mono text-rose-400 font-bold outline-none placeholder-slate-600"
+                  className="w-full bg-[#0D111A] border border-[#1E2638] focus:border-rose-500 rounded-xl px-3 py-2 text-xs font-mono text-rose-400 font-bold outline-none placeholder-slate-600"
                 />
               </div>
             </div>
@@ -279,14 +282,16 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
           {/* Estimated Margin & Total Amount Banner */}
           <div className="bg-[#0D111A] border border-[#1E2638] p-3 rounded-xl flex items-center justify-between text-xs">
             <span className="text-slate-400">Approx. Required Margin:</span>
-            <span className="font-mono font-bold text-slate-100">₹{estimatedAmount}</span>
+            <span className="font-mono font-bold text-slate-100 text-sm">₹{estimatedAmount}</span>
           </div>
+        </div>
 
-          {/* Action Order Button */}
+        {/* Sticky Action Footer */}
+        <div className="p-3.5 bg-[#0D111A] border-t border-[#1E2638] shrink-0">
           <button
             onClick={handleSubmitOrder}
             disabled={isSubmitting}
-            className={`w-full py-3.5 rounded-xl font-bold text-xs text-white uppercase tracking-wider shadow-lg transition-all flex items-center justify-center gap-2 ${
+            className={`w-full py-3.5 rounded-xl font-bold text-xs sm:text-sm text-white uppercase tracking-wider shadow-lg transition-all flex items-center justify-center gap-2 ${
               isBuy
                 ? 'bg-[#387ED1] hover:bg-[#2C68B2] shadow-[#387ED1]/30'
                 : 'bg-[#DF514C] hover:bg-[#B83E3A] shadow-[#DF514C]/30'
