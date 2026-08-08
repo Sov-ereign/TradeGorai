@@ -1,15 +1,13 @@
 import axios from 'axios';
-import type { Stock, Order, Position, PortfolioMetrics } from '../types/trading';
+import type { Stock, Order, Position, PortfolioMetrics, WatchlistGroup } from '../types/trading';
 
 // Normalize VITE_API_BASE_URL to always include /api path
 let rawBase = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api').trim();
 
-// Remove trailing slash if present
 if (rawBase.endsWith('/')) {
   rawBase = rawBase.slice(0, -1);
 }
 
-// Append /api if missing
 if (!rawBase.endsWith('/api')) {
   rawBase = `${rawBase}/api`;
 }
@@ -47,18 +45,41 @@ export const searchStocks = async (query: string): Promise<Stock[]> => {
   return res.data;
 };
 
-export const getWatchlist = async (): Promise<Stock[]> => {
+export const getWatchlists = async (): Promise<WatchlistGroup[]> => {
   const res = await api.get('/watchlist');
   return res.data;
 };
 
-export const addToWatchlist = async (stock: Stock) => {
-  const res = await api.post('/watchlist', stock);
+export const getWatchlist = async (): Promise<Stock[]> => {
+  const groups: WatchlistGroup[] = await getWatchlists();
+  if (groups.length > 0) {
+    return groups[0].items;
+  }
+  return [];
+};
+
+export const createWatchlistGroup = async (name: string) => {
+  const res = await api.post('/watchlist/group', { name });
   return res.data;
 };
 
-export const removeFromWatchlist = async (symbol: string) => {
-  const res = await api.delete(`/watchlist/${symbol}`);
+export const renameWatchlistGroup = async (groupId: string, name: string) => {
+  const res = await api.put(`/watchlist/group/${groupId}/rename`, { name });
+  return res.data;
+};
+
+export const deleteWatchlistGroup = async (groupId: string) => {
+  const res = await api.delete(`/watchlist/group/${groupId}`);
+  return res.data;
+};
+
+export const addToWatchlist = async (stock: Stock, groupId?: string) => {
+  const res = await api.post('/watchlist', { ...stock, group_id: groupId });
+  return res.data;
+};
+
+export const removeFromWatchlist = async (symbol: string, groupId?: string) => {
+  const res = await api.delete(`/watchlist/${symbol}`, { params: { group_id: groupId } });
   return res.data;
 };
 

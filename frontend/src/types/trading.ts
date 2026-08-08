@@ -10,6 +10,13 @@ export interface Stock {
   sector?: string;
 }
 
+export interface WatchlistGroup {
+  id: string;
+  name: string;
+  is_default?: boolean;
+  items: Stock[];
+}
+
 export type ProductType = 'CNC' | 'MIS';
 export type OrderType = 'MARKET' | 'LIMIT';
 export type OrderSide = 'BUY' | 'SELL';

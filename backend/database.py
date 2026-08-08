@@ -10,9 +10,19 @@ class Database:
     db: Any = None
     is_connected: bool = False
     
-    # Dynamic Watchlist (starts completely clean, populated by user or Zerodha sync)
-    memory_watchlist: List[Dict[str, Any]] = []
+    # Dynamic Multi-Watchlist system (starts clean, syncs with Zerodha or user additions)
+    memory_watchlists: List[Dict[str, Any]] = [
+        {
+            "id": "wl-1",
+            "name": "Watchlist 1",
+            "is_default": True,
+            "items": []
+        }
+    ]
     
+    # Legacy flat fallback list for backward compatibility
+    memory_watchlist: List[Dict[str, Any]] = []
+
     # Dynamic Orders list (starts clean)
     memory_orders: List[Dict[str, Any]] = []
 
