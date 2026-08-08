@@ -12,6 +12,7 @@ class OrderCreateRequest(BaseModel):
     qty: int
     product: str
     order_type: str
+    exchange: Optional[str] = "NSE"
     price: Optional[float] = 0.0
     target: Optional[float] = None
     stop_loss: Optional[float] = None

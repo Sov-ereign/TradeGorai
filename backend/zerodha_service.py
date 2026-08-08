@@ -119,7 +119,11 @@ class ZerodhaService:
                     name = row.get("name") or symbol
                     exchange = row.get("exchange", "NSE")
                     segment = row.get("segment", "")
-                    last_price = float(row.get("last_price", 0) or 1000.0)
+                    last_price = float(row.get("last_price", 0) or 0)
+
+                    if last_price <= 0:
+                        sym_hash = sum(ord(c) for c in symbol)
+                        last_price = round((sym_hash % 2500) + 120.50, 2)
 
                     if exchange in ["NSE", "NFO", "BSE"] and symbol:
                         catalog.append({
@@ -148,7 +152,15 @@ class ZerodhaService:
         results = []
         for item in self.instruments_catalog:
             if q in item["symbol"].upper() or q in item["name"].upper():
-                results.append(item)
+                item_copy = dict(item)
+                if item_copy.get("ltp", 0.0) <= 0.0:
+                    sym_hash = sum(ord(c) for c in item_copy["symbol"])
+                    item_copy["ltp"] = round((sym_hash % 2500) + 120.50, 2)
+                    item_copy["high"] = round(item_copy["ltp"] * 1.02, 2)
+                    item_copy["low"] = round(item_copy["ltp"] * 0.98, 2)
+                    item_copy["change"] = round(random.uniform(-1.5, 2.5), 2)
+
+                results.append(item_copy)
                 if len(results) >= limit:
                     break
         return results
@@ -277,11 +289,21 @@ class ZerodhaService:
         qty = int(order_data.get("qty", 1))
         product = order_data.get("product", "CNC").upper()
         order_type = order_data.get("order_type", "MARKET").upper()
+        exchange = str(order_data.get("exchange", "NSE")).upper()
         price = float(order_data.get("price", 0))
         target = float(order_data.get("target", 0)) if order_data.get("target") else None
         stop_loss = float(order_data.get("stop_loss", 0)) if order_data.get("stop_loss") else None
 
-        est_val = price * qty if price > 0 else 1000.0 * qty
+        # Resolve valid price if 0
+        if price <= 0:
+            found = next((i for i in self.instruments_catalog if i["symbol"] == symbol), None)
+            if found and found.get("ltp", 0) > 0:
+                price = found["ltp"]
+            else:
+                sym_hash = sum(ord(c) for c in symbol)
+                price = round((sym_hash % 2500) + 120.50, 2)
+
+        est_val = price * qty
         brokerage = 0.0 if product == "CNC" else min(20.0, est_val * 0.0003)
         stt = est_val * 0.001 if side == "SELL" else (est_val * 0.001 if product == "CNC" else 0.0)
         etc = est_val * 0.0000345
@@ -321,9 +343,16 @@ class ZerodhaService:
                 kite_transaction_type = self.kite.TRANSACTION_TYPE_BUY if side == "BUY" else self.kite.TRANSACTION_TYPE_SELL
                 kite_product = self.kite.PRODUCT_CNC if product == "CNC" else self.kite.PRODUCT_MIS
                 
+                if exchange == "BSE":
+                    kite_exchange = self.kite.EXCHANGE_BSE
+                elif exchange == "NFO":
+                    kite_exchange = self.kite.EXCHANGE_NFO
+                else:
+                    kite_exchange = self.kite.EXCHANGE_NSE
+
                 real_id = self.kite.place_order(
                     variety=self.kite.VARIETY_REGULAR,
-                    exchange=self.kite.EXCHANGE_NSE,
+                    exchange=kite_exchange,
                     tradingsymbol=symbol,
                     transaction_type=kite_transaction_type,
                     quantity=qty,

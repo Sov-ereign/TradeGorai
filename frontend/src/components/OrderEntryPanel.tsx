@@ -73,6 +73,7 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
         qty: Number(qty),
         product,
         order_type: orderType,
+        exchange: stock.exchange || 'NSE',
         price: orderType === 'LIMIT' ? Number(limitPrice) : stock.ltp,
         target: target ? Number(target) : undefined,
         stop_loss: stopLoss ? Number(stopLoss) : undefined,

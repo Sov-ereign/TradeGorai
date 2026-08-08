@@ -43,6 +43,7 @@ export interface Order {
   id: string;
   time: string;
   symbol: string;
+  exchange?: string;
   side: OrderSide;
   qty: number;
   price: number;

@@ -44,6 +44,7 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
         qty,
         product,
         order_type: orderType,
+        exchange: stock.exchange || 'NSE',
         price: effectivePrice,
         target: targetPrice ? parseFloat(targetPrice) : undefined,
         stop_loss: stopLossPrice ? parseFloat(stopLossPrice) : undefined,
