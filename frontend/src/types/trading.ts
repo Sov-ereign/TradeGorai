@@ -5,29 +5,38 @@ export interface Stock {
   change: number;
   high: number;
   low: number;
-  starred?: boolean;
+  starred: boolean;
   exchange?: string;
-  sector?: string;
+  depth?: {
+    buy: { price: number; quantity: number; orders: number }[];
+    sell: { price: number; quantity: number; orders: number }[];
+  };
 }
 
-export interface WatchlistGroup {
-  id: string;
-  name: string;
-  is_default?: boolean;
-  items: Stock[];
+export interface Position {
+  symbol: string;
+  product: 'CNC' | 'MIS';
+  qty: number;
+  avg_price: number;
+  current_price: number;
+  target?: number;
+  stop_loss?: number;
+  trailing_stop_loss?: number;
+  pnl: number;
+  pnl_percent: number;
+  unrealized_pnl: number;
+  status: 'OPEN' | 'CLOSED';
 }
 
 export interface AlgoStrategy {
   id: string;
   name: string;
-  description: string;
-  category: 'Scalping' | 'Momentum' | 'Options' | 'Breakout' | 'Webhook';
-  status: 'RUNNING' | 'PAUSED' | 'STOPPED';
-  timeframe: string;
-  instrument: string;
+  status: 'ACTIVE' | 'PAUSED' | 'STOPPED' | 'RUNNING';
   win_rate: number;
-  total_trades: number;
   total_pnl: number;
+  category?: string;
+  description?: string;
+  total_trades?: number;
   params: Record<string, any>;
   last_signal?: string;
   last_signal_time?: string;
@@ -36,7 +45,7 @@ export interface AlgoStrategy {
 export type ProductType = 'CNC' | 'MIS';
 export type OrderType = 'MARKET' | 'LIMIT';
 export type OrderSide = 'BUY' | 'SELL';
-export type OrderStatus = 'PENDING' | 'EXECUTED' | 'CANCELLED' | 'REJECTED';
+export type OrderStatus = 'PENDING' | 'EXECUTED' | 'CANCELLED' | 'REJECTED' | 'OPEN' | 'COMPLETE' | 'AMO REQ' | 'TRIGGER PENDING';
 export type ValidityType = 'DAY' | 'IOC';
 
 export interface Order {
@@ -53,24 +62,19 @@ export interface Order {
   stop_loss?: number;
   trailing_stop_loss?: number;
   validity?: ValidityType;
-  notes?: string;
   status: OrderStatus;
+  notes?: string;
   est_val?: number;
   brokerage?: number;
   charges?: number;
   net_amount?: number;
 }
 
-export interface Position {
-  symbol: string;
-  product: ProductType;
-  qty: number;
-  avg_price: number;
-  current_price: number;
-  pnl: number;
-  pnl_percent: number;
-  unrealized_pnl: number;
-  status: 'OPEN' | 'CLOSED';
+export interface WatchlistGroup {
+  id: string;
+  name: string;
+  is_default: boolean;
+  items: Stock[];
 }
 
 export interface PortfolioMetrics {

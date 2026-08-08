@@ -1,21 +1,10 @@
 import axios from 'axios';
-import type { Stock, Order, Position, PortfolioMetrics, WatchlistGroup, AlgoStrategy } from '../types/trading';
+import type { Stock, Order, Position, PortfolioMetrics, AlgoStrategy, WatchlistGroup } from '../types/trading';
 
-// Normalize VITE_API_BASE_URL to always include /api path
-let rawBase = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api').trim();
-
-if (rawBase.endsWith('/')) {
-  rawBase = rawBase.slice(0, -1);
-}
-
-if (!rawBase.endsWith('/api')) {
-  rawBase = `${rawBase}/api`;
-}
-
-export const API_BASE_URL = rawBase;
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: API_BASE,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -50,14 +39,6 @@ export const getWatchlists = async (): Promise<WatchlistGroup[]> => {
   return res.data;
 };
 
-export const getWatchlist = async (): Promise<Stock[]> => {
-  const groups: WatchlistGroup[] = await getWatchlists();
-  if (groups.length > 0) {
-    return groups[0].items;
-  }
-  return [];
-};
-
 export const createWatchlistGroup = async (name: string) => {
   const res = await api.post('/watchlist/group', { name });
   return res.data;
@@ -74,7 +55,17 @@ export const deleteWatchlistGroup = async (groupId: string) => {
 };
 
 export const addToWatchlist = async (stock: Stock, groupId?: string) => {
-  const res = await api.post('/watchlist', { ...stock, group_id: groupId });
+  const res = await api.post('/watchlist', {
+    symbol: stock.symbol,
+    name: stock.name,
+    ltp: stock.ltp,
+    change: stock.change,
+    high: stock.high,
+    low: stock.low,
+    starred: stock.starred || false,
+    exchange: stock.exchange || 'NSE',
+    group_id: groupId || 'wl-1',
+  });
   return res.data;
 };
 
@@ -105,6 +96,11 @@ export const modifyOrder = async (orderId: string, updateData: Partial<Order>) =
 
 export const cancelOrder = async (orderId: string) => {
   const res = await api.delete(`/orders/${orderId}`);
+  return res.data;
+};
+
+export const clearOrders = async () => {
+  const res = await api.delete('/orders/clear');
   return res.data;
 };
 

@@ -47,57 +47,40 @@ async def get_orders(status: Optional[str] = None):
 
 @router.post("", response_model=Dict[str, Any])
 async def place_order(order_req: OrderCreateRequest):
-    try:
-        order_dict = order_req.model_dump()
-        placed_order = zerodha_service.place_order(order_dict)
+    order_dict = order_req.model_dump()
+    placed_order = zerodha_service.place_order(order_dict)
 
-        # Attach virtual target & stop_loss fields
-        placed_order["target"] = order_dict.get("target")
-        placed_order["stop_loss"] = order_dict.get("stop_loss")
+    # Attach virtual target & stop_loss fields
+    placed_order["target"] = order_dict.get("target")
+    placed_order["stop_loss"] = order_dict.get("stop_loss")
 
-        # Save order to memory & disk storage
-        db_instance.memory_orders.insert(0, placed_order)
-        db_instance.save_storage_to_disk()
+    # Save order to memory & disk storage
+    db_instance.memory_orders.insert(0, placed_order)
+    db_instance.save_storage_to_disk()
 
-        # If executed or open, update position
-        if placed_order.get("status") in ["EXECUTED", "OPEN", "AMO REQ"]:
-            _update_position_from_executed_order(placed_order)
+    # POSITIONS ARE CREATED ONLY WHEN AN ORDER IS TRULY EXECUTED / FILLED!
+    # PENDING, OPEN, or AMO REQ orders MUST NOT create positions until filled.
+    if placed_order.get("status") in ["EXECUTED", "COMPLETE"]:
+        _update_position_from_executed_order(placed_order)
 
-        if db_instance.is_connected and db_instance.db is not None:
-            try:
-                await db_instance.db.orders.insert_one(placed_order.copy())
-            except Exception as e:
-                print(f"MongoDB order insert error: {e}")
+    if db_instance.is_connected and db_instance.db is not None:
+        try:
+            await db_instance.db.orders.insert_one(placed_order.copy())
+        except Exception as e:
+            print(f"MongoDB order insert error: {e}")
 
-        return {
-            "message": f"Order {placed_order['id']} placed successfully",
-            "order": placed_order
-        }
-    except Exception as e:
-        print(f"Order placement warning ({e}). Generating order entry...")
-        fallback_id = f"TG-{random.randint(100000000000, 999999999999)}"
-        fallback_order = {
-            "id": fallback_id,
-            "time": time.strftime("%H:%M:%S"),
-            "symbol": order_req.symbol,
-            "side": order_req.side,
-            "qty": order_req.qty,
-            "price": order_req.price if (order_req.price and order_req.price > 0) else 150.0,
-            "product": order_req.product,
-            "order_type": order_req.order_type,
-            "exchange": order_req.exchange or "NSE",
-            "target": order_req.target,
-            "stop_loss": order_req.stop_loss,
-            "status": "EXECUTED",
-            "notes": f"TradeGorai Execution Engine ({str(e)})"
-        }
-        db_instance.memory_orders.insert(0, fallback_order)
-        db_instance.save_storage_to_disk()
-        _update_position_from_executed_order(fallback_order)
-        return {
-            "message": f"Order {fallback_id} placed successfully",
-            "order": fallback_order
-        }
+    return {
+        "message": f"Order {placed_order['id']} placed successfully",
+        "order": placed_order
+    }
+
+@router.delete("/clear")
+async def clear_order_history():
+    """Clear local order history and reset positions"""
+    db_instance.memory_orders = []
+    db_instance.memory_positions = []
+    db_instance.save_storage_to_disk()
+    return {"message": "Order history and positions cleared successfully"}
 
 @router.put("/{order_id}", response_model=Dict[str, Any])
 async def modify_order(order_id: str, update_req: OrderUpdateRequest):
@@ -147,7 +130,7 @@ def _update_position_from_executed_order(order: Dict[str, Any]):
 
     existing_pos = None
     for pos in db_instance.memory_positions:
-        if pos["symbol"] == symbol and pos["product"] == product and pos["status"] == "OPEN":
+        if pos.get("symbol") == symbol and pos.get("product") == product and pos.get("status") == "OPEN":
             existing_pos = pos
             break
 

@@ -7,7 +7,7 @@ router = APIRouter(prefix="/api/positions", tags=["Positions"])
 
 @router.get("", response_model=List[Dict[str, Any]])
 async def get_positions():
-    all_pos = list(db_instance.memory_positions)
+    all_pos = [p for p in db_instance.memory_positions if isinstance(p, dict) and p.get("status") == "OPEN"]
     try:
         live_pos = zerodha_service.get_live_positions()
         if live_pos:
@@ -41,7 +41,7 @@ async def exit_position(symbol: str, product: str = "CNC"):
 
     exited_pos = None
     for pos in db_instance.memory_positions:
-        if pos["symbol"] == symbol_upper and pos.get("product", "CNC") == product and pos["status"] == "OPEN":
+        if pos.get("symbol") == symbol_upper and pos.get("product", "CNC") == product and pos.get("status") == "OPEN":
             pos["status"] = "CLOSED"
             exited_pos = pos
             side = "SELL" if pos["qty"] > 0 else "BUY"
@@ -51,7 +51,7 @@ async def exit_position(symbol: str, product: str = "CNC"):
                 "symbol": pos["symbol"],
                 "side": side,
                 "qty": pos["qty"],
-                "price": pos["current_price"],
+                "price": pos.get("current_price", pos.get("avg_price", 100.0)),
                 "product": pos["product"],
                 "order_type": "MARKET",
                 "status": "EXECUTED"
@@ -62,14 +62,16 @@ async def exit_position(symbol: str, product: str = "CNC"):
     if not exited_pos:
         raise HTTPException(status_code=404, detail="Open position not found")
 
+    db_instance.save_storage_to_disk()
     return {"message": f"Position in {symbol_upper} exited successfully", "position": exited_pos}
 
 @router.post("/square-off-all")
 async def square_off_all_positions():
     count = 0
     for pos in db_instance.memory_positions:
-        if pos["status"] == "OPEN":
+        if pos.get("status") == "OPEN":
             pos["status"] = "CLOSED"
             count += 1
 
+    db_instance.save_storage_to_disk()
     return {"message": f"Squared off {count} open positions", "squared_count": count}
