@@ -1,4 +1,17 @@
-export type TickCallback = (ticks: Record<string, any>) => void;
+export type TickCallback = (payload: Record<string, any>) => void;
+
+function getWsUrl(): string {
+  if (import.meta.env.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL;
+  }
+  const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+  if (apiBase.startsWith('https://')) {
+    return apiBase.replace('https://', 'wss://') + '/ws/ticks';
+  } else if (apiBase.startsWith('http://')) {
+    return apiBase.replace('http://', 'ws://') + '/ws/ticks';
+  }
+  return 'ws://localhost:8000/ws/ticks';
+}
 
 class WebSocketClient {
   private ws: WebSocket | null = null;
@@ -6,7 +19,9 @@ class WebSocketClient {
   private isConnected: boolean = false;
   private reconnectInterval: any = null;
 
-  public connect(url: string = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/ticks') {
+  public connect(customUrl?: string) {
+    const url = customUrl || getWsUrl();
+
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
@@ -16,7 +31,7 @@ class WebSocketClient {
 
       this.ws.onopen = () => {
         this.isConnected = true;
-        console.log('⚡ Connected to TradeGorai WebSockets Tick Stream');
+        console.log(`⚡ Connected to TradeGorai WebSockets Tick Stream (${url})`);
         if (this.reconnectInterval) {
           clearInterval(this.reconnectInterval);
           this.reconnectInterval = null;
@@ -26,9 +41,8 @@ class WebSocketClient {
       this.ws.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
-          if (payload.type === 'TICK_UPDATE' && payload.ticks) {
-            this.listeners.forEach((callback) => callback(payload.ticks));
-          }
+          // Broadcast full payload to all listeners
+          this.listeners.forEach((callback) => callback(payload));
         } catch (err) {
           console.error('Error parsing WS message:', err);
         }
@@ -67,6 +81,18 @@ class WebSocketClient {
 
   public getStatus() {
     return this.isConnected;
+  }
+
+  public disconnect() {
+    if (this.reconnectInterval) {
+      clearInterval(this.reconnectInterval);
+      this.reconnectInterval = null;
+    }
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    this.isConnected = false;
   }
 }
 
