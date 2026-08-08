@@ -102,13 +102,11 @@ class ZerodhaService:
 
     def _init_kite(self):
         """
-        Initialise KiteConnect and trust the stored access token.
-        We do NOT call profile() here because:
-          - Zerodha tokens expire at 06:00 IST daily.
-          - A failed profile() on startup would silently flip is_mock_mode=True
-            and route every order to Paper Mode, which is the wrong behaviour.
-          - Token validity is determined lazily: if an order API call returns
-            a TokenException we fall back to Paper Mode at that point.
+        Initialise KiteConnect with the stored access token.
+        - is_mock_mode is set based solely on whether we have an access token.
+        - profile() is fetched for display purposes only (user name, client id).
+        - A failed profile() fetch does NOT change is_mock_mode — token validity
+          is checked lazily at order-placement time via TokenException handling.
         """
         try:
             self.kite = KiteConnect(api_key=self.api_key)
@@ -116,6 +114,13 @@ class ZerodhaService:
                 self.kite.set_access_token(self.access_token)
                 self.is_mock_mode = False
                 logger.info("KiteConnect initialised with stored access token. Live order routing ACTIVE.")
+                # Fetch profile for display only — failure does NOT affect routing
+                try:
+                    profile = self.kite.profile()
+                    self.user_profile = profile
+                    logger.info(f"Zerodha profile loaded: {profile.get('user_name')} ({profile.get('user_id')})")
+                except Exception as profile_err:
+                    logger.warning(f"Could not fetch Zerodha profile (token may be stale): {profile_err}. Live routing still active.")
             else:
                 logger.info("No Zerodha access token found. Running in Paper Trading mode.")
         except Exception as e:
