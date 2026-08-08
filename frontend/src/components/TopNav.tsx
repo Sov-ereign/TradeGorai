@@ -175,13 +175,13 @@ export const TopNav: React.FC<TopNavProps> = ({
                         <span className="text-[10px] text-slate-400 block">{stock.name}</span>
                       </div>
                       <div className="text-right">
-                        <span className="font-mono text-slate-200">₹{stock.ltp.toFixed(2)}</span>
+                        <span className="font-mono text-slate-200">₹{((stock.ltp ?? 0)).toFixed(2)}</span>
                         <span
                           className={`block text-[10px] font-semibold ${
-                            stock.change >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                            (stock.change ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'
                           }`}
                         >
-                          {stock.change >= 0 ? '+' : ''}{stock.change.toFixed(2)}%
+                          {(stock.change ?? 0) >= 0 ? '+' : ''}{(stock.change ?? 0).toFixed(2)}%
                         </span>
                       </div>
                     </button>

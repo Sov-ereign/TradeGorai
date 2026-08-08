@@ -12,6 +12,11 @@ interface OrderEntryPanelProps {
   onOrderPlaced: (orderMsg: string) => void;
 }
 
+const safeNum = (val: any, decimals: number = 2): string => {
+  const num = typeof val === 'number' && !isNaN(val) ? val : 0;
+  return num.toFixed(decimals);
+};
+
 export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
   selectedStock,
   onOrderPlaced,
@@ -102,14 +107,14 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
 
         <div className="text-right font-mono">
           <div className="text-base font-bold text-emerald-400">
-            ₹{stock.ltp.toFixed(2)}
+            ₹{safeNum(stock.ltp)}
           </div>
           <span
             className={`text-[10px] font-semibold ${
-              stock.change >= 0 ? 'text-emerald-400' : 'text-rose-400'
+              (stock.change ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'
             }`}
           >
-            {stock.change >= 0 ? '+' : ''}{stock.change.toFixed(2)}%
+            {(stock.change ?? 0) >= 0 ? '+' : ''}{safeNum(stock.change)}%
           </span>
         </div>
       </div>
@@ -211,8 +216,8 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
           <input
             type="number"
             disabled={orderType === 'MARKET'}
-            value={orderType === 'MARKET' ? stock.ltp.toFixed(2) : limitPrice}
-            onChange={(e) => setLimitPrice(parseFloat(e.target.value) || stock.ltp)}
+            value={orderType === 'MARKET' ? safeNum(stock.ltp) : limitPrice}
+            onChange={(e) => setLimitPrice(parseFloat(e.target.value) || (stock.ltp ?? 0))}
             className={`w-full border rounded-lg px-3 py-1.5 text-xs font-mono outline-none ${
               orderType === 'MARKET'
                 ? 'bg-[#0D111A]/50 border-[#1E2638] text-slate-500 cursor-not-allowed'
@@ -233,7 +238,7 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
           </label>
           <input
             type="number"
-            placeholder={`e.g. ${(stock.ltp * 1.05).toFixed(1)}`}
+            placeholder={`e.g. ${safeNum((stock.ltp ?? 0) * 1.05, 1)}`}
             value={target}
             onChange={(e) => setTarget(e.target.value)}
             className="w-full bg-[#0D111A] border border-emerald-950/60 focus:border-emerald-500 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-100 outline-none"
@@ -246,7 +251,7 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
           </label>
           <input
             type="number"
-            placeholder={`e.g. ${(stock.ltp * 0.95).toFixed(1)}`}
+            placeholder={`e.g. ${safeNum((stock.ltp ?? 0) * 0.95, 1)}`}
             value={stopLoss}
             onChange={(e) => setStopLoss(e.target.value)}
             className="w-full bg-[#0D111A] border border-rose-950/60 focus:border-rose-500 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-100 outline-none"

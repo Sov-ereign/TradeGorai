@@ -148,11 +148,12 @@ export function App() {
       // Update Open Positions P&Ls with ticks
       setPositions((prevPos) =>
         prevPos.map((pos) => {
-          if (pos.status === 'OPEN' && ticks[pos.symbol]) {
+          if (pos.status === 'OPEN' && ticks[pos.symbol] && ticks[pos.symbol].ltp !== undefined) {
             const currentLtp = ticks[pos.symbol].ltp;
-            const diff = currentLtp - pos.avg_price;
-            const pnl = Number((diff * pos.qty).toFixed(2));
-            const pnl_percent = Number(((diff / pos.avg_price) * 100).toFixed(2));
+            const avgPrice = pos.avg_price || currentLtp || 1;
+            const diff = currentLtp - avgPrice;
+            const pnl = Number((diff * (pos.qty || 1)).toFixed(2));
+            const pnl_percent = Number(((diff / avgPrice) * 100).toFixed(2));
             return {
               ...pos,
               current_price: currentLtp,
@@ -380,15 +381,15 @@ export function App() {
                 <div className="grid grid-cols-3 gap-4 mb-6">
                   <div className="bg-[#0D111A] border border-[#1E2638] p-4 rounded-xl">
                     <span className="text-xs text-slate-400 block mb-1">Total Book Value</span>
-                    <span className="text-lg font-bold font-mono text-slate-100">₹{portfolio.total_investment.toFixed(2)}</span>
+                    <span className="text-lg font-bold font-mono text-slate-100">₹{(portfolio.total_investment ?? 0).toFixed(2)}</span>
                   </div>
                   <div className="bg-[#0D111A] border border-[#1E2638] p-4 rounded-xl">
                     <span className="text-xs text-slate-400 block mb-1">Current Value</span>
-                    <span className="text-lg font-bold font-mono text-emerald-400">₹{(portfolio.total_investment + portfolio.overall_pnl).toFixed(2)}</span>
+                    <span className="text-lg font-bold font-mono text-emerald-400">₹{((portfolio.total_investment ?? 0) + (portfolio.overall_pnl ?? 0)).toFixed(2)}</span>
                   </div>
                   <div className="bg-[#0D111A] border border-[#1E2638] p-4 rounded-xl">
                     <span className="text-xs text-slate-400 block mb-1">Total Holdings Return</span>
-                    <span className="text-lg font-bold font-mono text-emerald-400">+₹{portfolio.overall_pnl.toFixed(2)} ({portfolio.overall_pnl_percent}%)</span>
+                    <span className="text-lg font-bold font-mono text-emerald-400">+₹{(portfolio.overall_pnl ?? 0).toFixed(2)} ({(portfolio.overall_pnl_percent ?? 0).toFixed(2)}%)</span>
                   </div>
                 </div>
                 <div className="p-8 text-center text-xs text-slate-400 border border-dashed border-[#1E2638] rounded-xl">

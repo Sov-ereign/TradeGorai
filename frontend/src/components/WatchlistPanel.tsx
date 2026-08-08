@@ -32,6 +32,11 @@ interface WatchlistPanelProps {
   onWatchlistUpdated: () => void;
 }
 
+const safeNum = (val: any, decimals: number = 2): string => {
+  const num = typeof val === 'number' && !isNaN(val) ? val : 0;
+  return num.toFixed(decimals);
+};
+
 export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
   watchlist: propWatchlist,
   selectedStock,
@@ -169,10 +174,11 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
     }
   };
 
-  const filteredList = currentStocks.filter(
+  const filteredList = (currentStocks || []).filter(
     (stock) =>
-      stock.symbol.toLowerCase().includes(filterQuery.toLowerCase()) ||
-      stock.name.toLowerCase().includes(filterQuery.toLowerCase())
+      stock &&
+      (stock.symbol.toLowerCase().includes(filterQuery.toLowerCase()) ||
+        stock.name.toLowerCase().includes(filterQuery.toLowerCase()))
   );
 
   return (
@@ -218,7 +224,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
                         isActive ? 'bg-black/30 text-white' : 'bg-[#0D111A] text-slate-400'
                       }`}
                     >
-                      {group.items.length}
+                      {group.items ? group.items.length : 0}
                     </span>
                     {isActive && !group.is_default && (
                       <div className="flex items-center gap-1 ml-0.5" onClick={(e) => e.stopPropagation()}>
@@ -298,7 +304,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
                     <span className="text-[10px] text-slate-400 block">{stock.name} ({stock.exchange})</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-slate-200">₹{stock.ltp.toFixed(2)}</span>
+                    <span className="font-mono text-slate-200">₹{safeNum(stock.ltp)}</span>
                     <button
                       onClick={() => handleAddStock(stock)}
                       className="p-1 rounded bg-[#387ED1] hover:bg-[#2C68B2] text-white font-bold text-[11px] flex items-center gap-1 px-2"
@@ -338,7 +344,8 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
         ) : (
           filteredList.map((stock) => {
             const isSelected = selectedStock?.symbol === stock.symbol;
-            const isProfit = stock.change >= 0;
+            const changeVal = stock.change ?? 0;
+            const isProfit = changeVal >= 0;
 
             return (
               <div
@@ -379,7 +386,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
                 <div className="flex items-center gap-2">
                   <div className="text-right mr-1">
                     <div className="font-mono text-xs font-semibold text-slate-100">
-                      ₹{stock.ltp.toFixed(2)}
+                      ₹{safeNum(stock.ltp)}
                     </div>
                     <div
                       className={`flex items-center justify-end gap-0.5 text-[10px] font-semibold ${
@@ -393,7 +400,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
                       )}
                       <span>
                         {isProfit ? '+' : ''}
-                        {stock.change.toFixed(2)}%
+                        {safeNum(changeVal)}%
                       </span>
                     </div>
                   </div>

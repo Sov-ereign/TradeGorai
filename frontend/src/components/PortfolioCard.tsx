@@ -34,7 +34,7 @@ export const PortfolioCard: React.FC<PortfolioCardProps> = ({ portfolio }) => {
           {isTodayProfit ? '+' : ''}{formatINR(portfolio.today_pnl)}
         </div>
         <span className={`text-[10px] font-semibold ${isTodayProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
-          {isTodayProfit ? '▲' : '▼'} {portfolio.today_pnl_percent.toFixed(2)}%
+          {isTodayProfit ? '▲' : '▼'} {(portfolio.today_pnl_percent ?? 0).toFixed(2)}%
         </span>
       </div>
 
@@ -52,7 +52,7 @@ export const PortfolioCard: React.FC<PortfolioCardProps> = ({ portfolio }) => {
           {isOverallProfit ? '+' : ''}{formatINR(portfolio.overall_pnl)}
         </div>
         <span className={`text-[10px] font-semibold ${isOverallProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
-          {isOverallProfit ? '▲' : '▼'} {portfolio.overall_pnl_percent.toFixed(2)}%
+          {isOverallProfit ? '▲' : '▼'} {(portfolio.overall_pnl_percent ?? 0).toFixed(2)}%
         </span>
       </div>
 

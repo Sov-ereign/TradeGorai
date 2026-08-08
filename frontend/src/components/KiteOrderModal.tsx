@@ -86,9 +86,9 @@ export const KiteOrderModal: React.FC<KiteOrderModalProps> = ({
 
           <div className="flex items-center gap-3">
             <div className="text-right">
-              <span className="font-mono text-base font-bold block">₹{stock.ltp.toFixed(2)}</span>
+              <span className="font-mono text-base font-bold block">₹{(stock?.ltp ?? 0).toFixed(2)}</span>
               <span className="text-[11px] font-semibold opacity-90">
-                {stock.change >= 0 ? '+' : ''}{stock.change.toFixed(2)}%
+                {(stock?.change ?? 0) >= 0 ? '+' : ''}{(stock?.change ?? 0).toFixed(2)}%
               </span>
             </div>
             <button onClick={onClose} className="text-white/80 hover:text-white p-1">
