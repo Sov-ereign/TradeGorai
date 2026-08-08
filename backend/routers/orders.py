@@ -47,32 +47,36 @@ async def get_orders(status: Optional[str] = None):
 
 @router.post("", response_model=Dict[str, Any])
 async def place_order(order_req: OrderCreateRequest):
-    order_dict = order_req.model_dump()
-    placed_order = zerodha_service.place_order(order_dict)
+    try:
+        order_dict = order_req.model_dump()
+        placed_order = zerodha_service.place_order(order_dict)
 
-    # Attach virtual target & stop_loss fields
-    placed_order["target"] = order_dict.get("target")
-    placed_order["stop_loss"] = order_dict.get("stop_loss")
+        # Attach virtual target & stop_loss fields
+        placed_order["target"] = order_dict.get("target")
+        placed_order["stop_loss"] = order_dict.get("stop_loss")
 
-    # Save order to memory & disk storage
-    db_instance.memory_orders.insert(0, placed_order)
-    db_instance.save_storage_to_disk()
+        # Save order to memory & disk storage
+        db_instance.memory_orders.insert(0, placed_order)
+        db_instance.save_storage_to_disk()
 
-    # POSITIONS ARE CREATED ONLY WHEN AN ORDER IS TRULY EXECUTED / FILLED!
-    # PENDING, OPEN, or AMO REQ orders MUST NOT create positions until filled.
-    if placed_order.get("status") in ["EXECUTED", "COMPLETE"]:
-        _update_position_from_executed_order(placed_order)
+        # POSITIONS ARE CREATED ONLY WHEN AN ORDER IS TRULY EXECUTED / FILLED!
+        if placed_order.get("status") in ["EXECUTED", "COMPLETE"]:
+            _update_position_from_executed_order(placed_order)
 
-    if db_instance.is_connected and db_instance.db is not None:
-        try:
-            await db_instance.db.orders.insert_one(placed_order.copy())
-        except Exception as e:
-            print(f"MongoDB order insert error: {e}")
+        if db_instance.is_connected and db_instance.db is not None:
+            try:
+                await db_instance.db.orders.insert_one(placed_order.copy())
+            except Exception as e:
+                print(f"MongoDB order insert error: {e}")
 
-    return {
-        "message": f"Order {placed_order['id']} placed successfully",
-        "order": placed_order
-    }
+        return {
+            "message": f"Order {placed_order['id']} placed successfully",
+            "order": placed_order
+        }
+    except Exception as e:
+        err_msg = str(e)
+        print(f"Order placement error: {err_msg}")
+        raise HTTPException(status_code=400, detail=err_msg)
 
 @router.delete("/clear")
 async def clear_order_history():
